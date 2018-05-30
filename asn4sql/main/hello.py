@@ -13,7 +13,6 @@ import os
 
 from absl import app
 from absl import flags
-import torch.nn.functional as F
 
 from asn4sql import log
 from asn4sql.utils import seed_all
@@ -22,8 +21,8 @@ flags.DEFINE_integer('seed', 1, 'random seed')
 
 flags.DEFINE_string(
     'experiment_name', None,
-    'experiment name, determines logging directory name (default is {dataset}_{model})'
-)
+    'experiment name, determines logging directory name (by default, '
+    'this is a hash of the flags after the seed is removed)')
 
 
 def _main(argv):
