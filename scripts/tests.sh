@@ -39,8 +39,8 @@ main() {
 
     cmds=()
     cmds+=("rm -rf ./logs/_test")
-    cmds+=("python asn4sql/main/hello.py --experiment_name _test --seed 1")
-    cmds+=("test -f ./logs/_test/1/log.txt")
+    cmds+=("python asn4sql/main/hello.py --logroot ./logs/_test --seed 1")
+    cmds+=("test -f ./logs/_test/*/1/log.txt")
 
     for cmd in "${cmds[@]}"; do
         box "${cmd}"
