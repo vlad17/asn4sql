@@ -90,15 +90,19 @@ def init(logdir=None):
         logdir = _make_log_directory(logdir)
         _LOGDIR = logdir
 
-    handler = logging.StreamHandler()
-    handler.setFormatter(_FORMATTER)
-    _LOGGER.propagate = False
-    _LOGGER.addHandler(handler)
-    if logdir is not None:
-        _LOGGER.addHandler(
-            logging.FileHandler(os.path.join(logdir, 'log.txt')))
     if not flags.FLAGS.quiet:
-        _LOGGER.setLevel(logging.DEBUG)
+        handler = logging.StreamHandler()
+        handler.setFormatter(_FORMATTER)
+        _LOGGER.addHandler(handler)
+
+    if logdir is not None:
+        handler = logging.FileHandler(os.path.join(logdir, 'log.txt'))
+        handler.setFormatter(_FORMATTER)
+        _LOGGER.addHandler(handler)
+
+    _LOGGER.propagate = False
+    _LOGGER.setLevel(logging.DEBUG)
+
     if logdir is not None:
         debug('log directory is {}', logdir)
         _save_git_hash(os.path.join(logdir, 'githash.txt'))

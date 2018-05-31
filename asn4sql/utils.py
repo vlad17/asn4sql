@@ -10,7 +10,7 @@ import random
 import numpy as np
 import torch
 
-from .log import debug
+from . import log
 
 
 def _next_seeds(n):
@@ -33,23 +33,12 @@ def _next_seeds(n):
 def seed_all(seed):
     """Seed all devices deterministically off of seed and somewhat
     independently."""
-    debug('seeding with seed {}', seed)
+    log.debug('seeding with seed {}', seed)
     np.random.seed(seed)
     rand_seed, torch_cpu_seed, torch_gpu_seed = _next_seeds(3)
     random.seed(rand_seed)
     torch.manual_seed(torch_cpu_seed)
     torch.cuda.manual_seed_all(torch_gpu_seed)
-
-
-def gpus():
-    """Retrieve gpus from env var CUDA_VISIBLE_DEVICES"""
-    if 'CUDA_VISIBLE_DEVICES' not in os.environ:
-        gpulist = list(range(torch.cuda.device_count()))
-    else:
-        gpulist = os.environ['CUDA_VISIBLE_DEVICES'].split(',')
-        gpulist = list(map(int, filter(None, gpulist)))
-    gpulist.sort()
-    return gpulist
 
 
 class RollingAverageWindow:
@@ -83,3 +72,35 @@ def import_matplotlib():
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     return plt
+
+
+def gpus():
+    """
+    Lists all GPUs specified by CUDA_VISIBLE_DEVICES or all those available.
+    """
+    if 'CUDA_VISIBLE_DEVICES' not in os.environ:
+        gpulist = list(range(torch.cuda.device_count()))
+    else:
+        gpulist = os.environ['CUDA_VISIBLE_DEVICES'].split(',')
+        gpulist = list(map(int, filter(None, gpulist)))
+    gpulist.sort()
+    return gpulist
+
+
+def get_device():
+    """
+    Retrieve gpu index from env var CUDA_VISIBLE_DEVICES or use the CPU if
+    no GPUs are available.
+
+    Verifies at most one GPU is being used.
+    """
+    gpulist = gpus()
+
+    # multiple GPUs would require DistributedDataParallel (DataParallel
+    # doesn't use NCCL and puts all outputs on gpu0). That complexity
+    # isn't worth it right now.
+    assert len(gpulist) <= 1, 'expecting at most one GPU, found {}'.format(
+        len(gpulist))
+    if len(gpulist) == 1:
+        return torch.device('cuda')
+    return torch.device('cpu')
