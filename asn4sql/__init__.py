@@ -1,3 +1,3 @@
 """Modules for the asn4sql package"""
 
-from . import wikisql
+from . import data

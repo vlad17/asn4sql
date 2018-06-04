@@ -14,10 +14,8 @@ from absl import flags
 from tqdm import tqdm
 from babel.numbers import parse_decimal, NumberFormatError
 
-from . import log
-from .dbengine import DBEngine
-
-flags.DEFINE_string('dataroot', './data', 'data caching directory')
+from .. import log
+from ..dbengine import DBEngine
 
 
 class Token:
