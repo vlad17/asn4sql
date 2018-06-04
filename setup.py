@@ -12,7 +12,8 @@ install_requires = [
     'pylint>=1.9.1',
     'yapf>=0.22.0',
     'babel>=2.6.0',
-    'tqdm>=4.23.4'
+    'tqdm>=4.23.4',
+    'tabulate>=0.8.2'
 ]
 
 setup(name="asn4sql", author="RISE Lab", install_requires=install_requires)

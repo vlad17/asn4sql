@@ -4,6 +4,7 @@ WikiSQL repository.
 """
 
 import re
+import functools
 
 import records
 
@@ -24,9 +25,9 @@ class DBEngine:
         out = self.db.query(query_str, **query_param_map)
         return [next(iter(o.values())) for o in out]
 
+    @functools.lru_cache(maxsize=None)
     def get_schema(self, table_id):
         """Return the column name to type mapping"""
-        # TODO consider memoizing this method (for memory use reduction)
         table_info = self.db.query(
             'SELECT sql from sqlite_master WHERE tbl_name = :name',
             name=table_id).all()[0].sql.replace('\n', '')

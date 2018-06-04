@@ -11,6 +11,7 @@ import json
 import re
 
 from absl import flags
+from tabulate import tabulate
 from tqdm import tqdm
 from babel.numbers import parse_decimal, NumberFormatError
 
@@ -18,6 +19,7 @@ from . import log
 from .dbengine import DBEngine
 
 flags.DEFINE_string('dataroot', './data', 'data caching directory')
+
 
 # TODO rename NormalizedString to Token here; remember comments
 class NormalizedString:
@@ -201,7 +203,9 @@ class Query:
             query_str = query_str.replace('col{}'.format(i), colname)
         return query_str
 
+
 _URL = 'https://drive.google.com/uc?id=1uMG4cjaQGNU_HRW-2TPB5g904FITKuKE'
+
 
 def wikisql(toy):
     """
@@ -218,23 +222,28 @@ def wikisql(toy):
         data_dir, compressed_file = os.path.split(compressed_filepath)
         subprocess.check_call(['tar', 'xzf', compressed_file], cwd=data_dir)
 
-    # TODO val, test
-    # TRAIN_DB = 'data/train.db'
-    # DEV_DB = 'data/dev.db'
-    # TEST_DB = 'data/test.db'
     train_db, train_queries = _load_wikisql_data(
         os.path.join(wikisql_dir, 'annotated', 'train.jsonl'),
         os.path.join(wikisql_dir, 'dbs', 'train.db'), toy)
+    val_db, val_queries = _load_wikisql_data(
+        os.path.join(wikisql_dir, 'annotated', 'dev.jsonl'),
+        os.path.join(wikisql_dir, 'dbs', 'dev.db'), toy)
+    test_db, test_queries = _load_wikisql_data(
+        os.path.join(wikisql_dir, 'annotated', 'test.jsonl'),
+        os.path.join(wikisql_dir, 'dbs', 'test.db'), toy)
 
     for i in train_queries[-5:]:
         print(i.interpolated_query())
 
-    # queries = _load_wikisql_data(
-    #     os.path.join(wikisql_dir, 'dev.jsonl'),
-    #     toy)
-    # queries = _load_wikisql_data(
-    #     os.path.join(wikisql_dir, 'test.jsonl'),
-    #     toy)
+    trainqs = set(tq.table_id for tq in train_queries)
+    testqs = set(tq.table_id for tq in test_queries)
+    print('num train tables', len(trainqs))
+    print('num test tables', len(testqs))
+    print('num tables in both', len(testqs & trainqs))
+
+    print('evaluating query\n', train_queries[-1].interpolated_query())
+    rows = train_db.execute_query(train_queries[-1])
+    print(rows)
 
     # TODO:
     # 1. The tokens returned here are generally unclean. The query tokens
@@ -268,8 +277,18 @@ def wikisql(toy):
     #    show up in numerical columns. This would need to be extracted from
     #    the DB schema.
     # 4. Inspect which tokens are not available in the glove embedding.
+    # 5. See the SEMPRE paper for various preprocessing tricks to identify
+    #    literals; proper nouns can be recorded as such, and numbers can
+    #    be correspondingly tagged.
+    # 6. It seems like we may need to get a sample of table contents or at the
+    #    very least additional columnar information. For example, the columns
+    #    might contain a low-cardinality set of values that could be useful
+    #    in answering queries with synonyms (e.g., sports table,
+    #    what was the top-scoring men's basketball team in 2008, where the
+    #    sports table has league = {wnba, nba, nhl, nfl} needs to learn
+    #    that the table has an "nba" entry.
 
-    return train_db, train_queries
+    return train_db, train_queries, val_db, val_queries, test_db, test_queries
 
 
 def _check_or_fetch(filename, url):

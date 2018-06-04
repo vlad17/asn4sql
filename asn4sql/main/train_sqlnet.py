@@ -65,18 +65,6 @@ def _main(argv):
     model = model.to(device)
 
     datasets.wikisql(True)
-    # per sqlnet perform a learned embedding
-    # TODO need consistent md5 hashing in lbs project as well
-    # TODO hop to closing paren emacs look up
-    # TODO "people who call them 'dev' sets" meme
-    # TODO need to assume literals are in some way present directly in the
-    # question (TODO: preprocess numbers, etc.? see sempre tricks. what
-    # do people usually do?). Otherwise need to get a sample of table
-    # contents to disambiguate the synonym case (e.g., sports table,
-    # what was the top-scoring men's basketball team in 2008, where the
-    # sports table has league = {wnba, nba, nhl, nfl} needs to learn
-    # that the table has an "nba" entry ---> low-cardinality
-    # partial string matches ---> now need lstm output or extended AST
 
 
 def _flags_hashstr(seed_module_name):
