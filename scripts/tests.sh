@@ -39,7 +39,7 @@ main() {
 
     cmds=()
     cmds+=("rm -rf ./logs/_test")
-    cmds+=("python asn4sql/main/train_sqlnet.py --logroot ./logs/_test --seed 1")
+    cmds+=("python asn4sql/main/train_sqlnet.py --logroot ./logs/_test --seed 1 --toy --validate_data")
     cmds+=("test -f ./logs/_test/*/1/log.txt")
     cmds+=("test -f ./logs/_test/*/1/flags.flags")
     cmds+=("test -f ./logs/_test/*/1/flags.json")

@@ -15,7 +15,6 @@ class DBEngine:
     """SQLite interface to actual record information"""
 
     def __init__(self, fdb):
-        print(fdb)
         self.db = records.Database('sqlite:///{}'.format(fdb))
 
     def execute_query(self, query):

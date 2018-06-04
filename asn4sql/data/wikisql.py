@@ -5,15 +5,14 @@ Note datasets are cached.
 """
 
 import os
-import subprocess
 import itertools
 import json
 import re
 
-from absl import flags
 from tqdm import tqdm
 from babel.numbers import parse_decimal, NumberFormatError
 
+from .fetch import check_or_fetch
 from .. import log
 from ..dbengine import DBEngine
 
@@ -212,11 +211,7 @@ def wikisql(toy):
     """
     # compressed WikiSQL file after the annotation recommended in
     # https://github.com/salesforce/WikiSQL has been run.
-    wikisql_dir = os.path.join(flags.FLAGS.dataroot, 'wikisql')
-    if not os.path.isdir(wikisql_dir):
-        compressed_filepath = _check_or_fetch('wikisql.tgz', _URL)
-        data_dir, compressed_file = os.path.split(compressed_filepath)
-        subprocess.check_call(['tar', 'xzf', compressed_file], cwd=data_dir)
+    wikisql_dir = check_or_fetch('wikisql', 'wikisql.tgz', _URL)
 
     train_db, train_queries = _load_wikisql_data(
         os.path.join(wikisql_dir, 'annotated', 'train.jsonl'),
@@ -227,19 +222,6 @@ def wikisql(toy):
     test_db, test_queries = _load_wikisql_data(
         os.path.join(wikisql_dir, 'annotated', 'test.jsonl'),
         os.path.join(wikisql_dir, 'dbs', 'test.db'), toy)
-
-    for i in train_queries[-5:]:
-        print(i.interpolated_query())
-
-    trainqs = set(tq.table_id for tq in train_queries)
-    testqs = set(tq.table_id for tq in test_queries)
-    print('num train tables', len(trainqs))
-    print('num test tables', len(testqs))
-    print('num tables in both', len(testqs & trainqs))
-
-    print('evaluating query\n', train_queries[-1].interpolated_query())
-    rows = train_db.execute_query(train_queries[-1])
-    print(rows)
 
     # TODO:
     # 1. The tokens returned here are generally unclean. The query tokens
@@ -285,17 +267,6 @@ def wikisql(toy):
     #    that the table has an "nba" entry.
 
     return train_db, train_queries, val_db, val_queries, test_db, test_queries
-
-
-def _check_or_fetch(filename, url):
-    full_path = os.path.join(flags.FLAGS.dataroot, filename)
-    if not os.path.isfile(full_path):
-        directory = os.path.dirname(full_path)
-        os.makedirs(directory, exist_ok=True)
-        subprocess.check_call(
-            ['wget', '--quiet', url, '--output-document', filename],
-            cwd=directory)
-    return full_path
 
 
 def _count_lines(fname):

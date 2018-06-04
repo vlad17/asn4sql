@@ -40,6 +40,10 @@ flags.DEFINE_string(
     'across a set of seeds for a fixed set of parameter values'
     ' and may be used later by other python modules '
     'in creating plot legends')
+flags.DEFINE_boolean(
+    'validate_data', False, 'do not train anything; just do a couple data '
+    'integrity checks')
+flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 
 
 def _main(argv):
@@ -48,6 +52,12 @@ def _main(argv):
     log.init(log_subdir)
 
     log.debug('downloading and reading pre-annotated wikisql data')
+    if flags.FLAGS.toy:
+        log.debug('using toy data subset')
+    all_data = data.wikisql(True)
+    if flags.FLAGS.validate_data:
+        _validate_data(all_data)
+        return
     # from SQLNet, cache/dl data.tar.bz2 and corresponding rows
 
     log.debug('downloading and reading initial glove embeddings')
@@ -63,8 +73,6 @@ def _main(argv):
     device = get_device()
     torch.save(model.to(torch.device('cpu')), savefile)
     model = model.to(device)
-
-    _ = data.wikisql(True)
 
 
 def _flags_hashstr(seed_module_name):
@@ -82,6 +90,54 @@ def _flags_hashstr(seed_module_name):
                  for k, v in sorted(flags_dict.items())]
     flags_str = str(flags_set).encode('utf-8')
     return hashlib.md5(flags_str).hexdigest()
+
+
+def _validate_data(all_data):
+    train_db, train_queries, val_db, val_queries, test_db, test_queries = (
+        all_data)
+
+    print('5 example training queries')
+    indent = ' ' * 3
+    for i in train_queries[-5:]:
+        print(indent, i.interpolated_query())
+
+    trainqs = set(tq.table_id for tq in train_queries)
+    valqs = set(tq.table_id for tq in val_queries)
+    testqs = set(tq.table_id for tq in test_queries)
+    print('distinct table counts across datasets')
+    print(indent, 'num train tables  ', len(trainqs))
+    print(indent, 'num val tables    ', len(valqs))
+    print(indent, 'num test tables   ', len(testqs))
+    print(indent, 'intersection in train/val', len(trainqs & valqs))
+    print(indent, 'intersection in train/test', len(testqs & trainqs))
+    print(indent, 'intersection in val/test', len(testqs & valqs))
+
+    print('evaluating query ', train_queries[-1].interpolated_query())
+    rows = train_db.execute_query(train_queries[-1])
+    print('\n'.join(indent + ' ' + r for r in rows))
+
+    word_to_idx, _embeding = data.load_glove()
+    conds = [
+        norm_str.token for q in train_queries for cond in q.conds
+        for norm_str in cond.condition_literal
+    ]
+    question = [
+        norm_str.token for q in train_queries for norm_str in q.question
+    ]
+    columns = [
+        norm_str.token for q in train_queries for c in q.column_descriptions
+        for norm_str in c
+    ]
+
+    nc = sum(c in word_to_idx for c in conds)
+    nq = sum(c in word_to_idx for c in question)
+    nco = sum(c in word_to_idx for c in columns)
+    print('words in glove of total words')
+    print(indent, 'among conditionals {} of {}'.format(nc, len(conds)))
+    print(indent, 'among questions    {} of {}'.format(nq, len(question)))
+    print(indent, 'among columns      {} of {}'.format(nco, len(columns)))
+
+    # TODO: print sample of stuff not in glove
 
 
 if __name__ == '__main__':
