@@ -20,8 +20,7 @@ from .dbengine import DBEngine
 flags.DEFINE_string('dataroot', './data', 'data caching directory')
 
 
-# TODO rename NormalizedString to Token here; remember comments
-class NormalizedString:
+class Token:
     """WikiSQL has several forms of the same string as preprocessing.
 
     This stores the original string and the whitespace or punctuation
@@ -40,18 +39,18 @@ class NormalizedString:
         return False
 
     def __repr__(self):
-        return 'NormalizedString({}, {}, {})'.format(self.token, self.original,
-                                                     self.after)
+        return 'Token({}, {}, {})'.format(self.token, self.original,
+                                          self.after)
 
     @staticmethod
     def detokenize(ls):
-        """Detokenize a list of normalized strings"""
+        """Detokenize a list of tokens"""
         return ''.join(s.original + s.after for s in ls)
 
     @classmethod
     def from_dict_list(cls, dict_list, subindex=None):
         """Converts a dictionary of word, gloss, after lists to a
-        single list of normalized strings."""
+        single list of tokens."""
         if subindex is None:
             subindex = range(len(dict_list['words']))
         sublists = (list(dict_list[key][i] for i in subindex)
@@ -67,7 +66,7 @@ class Condition:
 
     We store the operation index into Query.CONDITIONAL, the column index
     (corresponding to a table schema referenced by the query containing
-    a condition), and the NormalizedString containing the literal being
+    a condition), and the Token containing the literal being
     evaluated against."""
 
     def __init__(self, col_idx, op_idx, condition_literal):
@@ -130,13 +129,13 @@ class Query:
         self.conds = []
         for col_idx, op_idx, words in query_json['query']['conds']:
             assert op_idx >= 0 and op_idx <= 2, op_idx
-            normalized_words = NormalizedString.from_dict_list(words)
+            normalized_words = Token.from_dict_list(words)
             cond = Condition(col_idx, op_idx, normalized_words)
             self.conds.append(cond)
-        self.question = NormalizedString.from_dict_list(query_json['question'])
+        self.question = Token.from_dict_list(query_json['question'])
 
         self.column_descriptions = [
-            NormalizedString.from_dict_list(colname)
+            Token.from_dict_list(colname)
             for colname in query_json['table']['header']
         ]
         self.table_id = query_json['table_id']
@@ -159,7 +158,7 @@ class Query:
         lower = True  # all dirty strings are lower cased for some reason?
         for cond in self.conds:
             col_index, op = cond.col_idx, cond.op_idx
-            val = NormalizedString.detokenize(cond.condition_literal)
+            val = Token.detokenize(cond.condition_literal)
             if lower and isinstance(val, (str, bytes)):
                 val = val.lower()
             if self.schema['col{}'.format(
@@ -196,7 +195,7 @@ class Query:
                 v = "'{}'".format(v)
             query_str = query_str.replace(':' + k, v)
         for i, col_desc in enumerate(self.column_descriptions):
-            colname = NormalizedString.detokenize(col_desc)
+            colname = Token.detokenize(col_desc)
             if re.search(r'\s|/|\p', colname):
                 colname = '"{}"'.format(colname)
             query_str = query_str.replace('col{}'.format(i), colname)
@@ -260,7 +259,7 @@ def wikisql(toy):
     #    just punctuation and that may mess stuff up too.
     #    Consider using nltk here.
     # 2. When strings are broken up, the whitespace after the string is
-    #    preserved (and stored in the corresponding NormalizedString). This
+    #    preserved (and stored in the corresponding Token). This
     #    is not quite a disciplined approach; sometimes the unnormalized
     #    word corresponding to a token may be associated with punctuation
     #    before and after it. For example, currently the string
@@ -270,8 +269,8 @@ def wikisql(toy):
     #    in parenthesis. The whitespace between words is also essential,
     #    because the column names need to be reconstructed accurately, with
     #    fully recovered spacing and hyphenation.
-    # 3. Type information about the columns should be normalized (i.e., made
-    #    into an enumeration) and stored withing the queries, as it may
+    # 3. Type information about the columns should be made
+    #    into an enumeration and stored within the queries, as it may
     #    be useful to the algorithm (e.g., numerical condition literals should
     #    show up in numerical columns. This would need to be extracted from
     #    the DB schema.
@@ -417,7 +416,7 @@ def _validate(query, query_json):
             cond_lit_idxs = cond_lit_idxs[:-1]
         col_idx = _find_col_from_idxs(cond_col_idxs)
         op_idx = query.CONDITIONAL.index(op)
-        literal = NormalizedString.from_dict_list(true_query, cond_lit_idxs)
+        literal = Token.from_dict_list(true_query, cond_lit_idxs)
         return has_symand, Condition(col_idx, op_idx, literal)
 
     if where_sym_idx >= 0:
