@@ -10,7 +10,9 @@ install_requires = [
     'absl-py>=0.1.13',
     'scikit-learn>=0.19.1',
     'pylint>=1.9.1',
-    'yapf>=0.22.0'
+    'yapf>=0.22.0',
+    'babel>=2.6.0',
+    'tqdm>=4.23.4'
 ]
 
 setup(name="asn4sql", author="RISE Lab", install_requires=install_requires)
