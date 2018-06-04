@@ -27,9 +27,9 @@ from absl import app
 from absl import flags
 import torch
 
-from asn4sql import datasets
 from asn4sql import log
 from asn4sql import sqlnet
+from asn4sql.wikisql import wikisql
 from asn4sql.utils import seed_all, get_device, gpus
 
 flags.DEFINE_integer('seed', 1, 'random seed')
@@ -64,7 +64,7 @@ def _main(argv):
     torch.save(model.to(torch.device('cpu')), savefile)
     model = model.to(device)
 
-    datasets.wikisql(True)
+    _ = wikisql(True)
 
 
 def _flags_hashstr(seed_module_name):

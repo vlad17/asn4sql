@@ -11,7 +11,6 @@ import json
 import re
 
 from absl import flags
-from tabulate import tabulate
 from tqdm import tqdm
 from babel.numbers import parse_decimal, NumberFormatError
 
