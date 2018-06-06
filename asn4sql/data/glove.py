@@ -13,7 +13,12 @@ from .. import log
 
 
 def load_glove():
-    """loads the glove embedding"""
+    """
+    loads the glove embedding, a dictionary mapping words to indices in the
+    embedding array.
+
+    Note 0 == <UNK>
+    """
     url = 'http://nlp.stanford.edu/data/wordvecs/glove.42B.300d.zip'
     glove_dir = check_or_fetch('glove', 'glove.zip', url)
     log.debug('loading word embedding data from {}', glove_dir)

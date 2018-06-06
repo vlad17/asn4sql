@@ -54,7 +54,7 @@ def _main(argv):
     log.debug('downloading and reading pre-annotated wikisql data')
     if flags.FLAGS.toy:
         log.debug('using toy data subset')
-    all_data = data.wikisql(True)
+    all_data = data.wikisql(flags.FLAGS.toy)
     if flags.FLAGS.validate_data:
         _validate_data(all_data)
         return
@@ -99,7 +99,10 @@ def _validate_data(all_data):
     print('5 example training queries')
     indent = ' ' * 3
     for i in train_queries[-5:]:
+        print()
+        print(indent, data.Token.detokenize(i.question))
         print(indent, i.interpolated_query())
+    print()
 
     trainqs = set(tq.table_id for tq in train_queries)
     valqs = set(tq.table_id for tq in val_queries)
@@ -119,7 +122,7 @@ def _validate_data(all_data):
     word_to_idx, _embeding = data.load_glove()
     conds = [
         norm_str.token for q in train_queries for cond in q.conds
-        for norm_str in cond.condition_literal
+        for norm_str in cond.literal_toks(q.question)
     ]
     question = [
         norm_str.token for q in train_queries for norm_str in q.question
@@ -137,7 +140,33 @@ def _validate_data(all_data):
     print(indent, 'among questions    {} of {}'.format(nq, len(question)))
     print(indent, 'among columns      {} of {}'.format(nco, len(columns)))
 
+    # TODO: unknown output/input strs, need LSTM, no?... why use embedding at
+    # all? see coarse2fine oov
+
+    # TODO: how to do batched rnn...? Maybe implement unbatched first.
+    # TODO: don't use sqlnet. use COARSE TO FINE.... MAKE THE SWITCH.
+    # https://github.com/donglixp/coarse2fine
+
+    # todo: formally specify wikisql grammar (already done in validation...)
+    # todo: TEST on reshuffles of wikisql data (i.e., coarse2fine assumes
+    # sketches are from training set, can be missing some easily -- can even
+    # check this manually here!)
+
+    # 2-pass is not essential; classifier-based sketching is detrimental.
+    # TODO: coarse2fine assumes literal *span* not just words suffices
+    #       is this correct? Check manually.
+
+    # TODO: if literals / string matches are not in the input, this can get
+    # arbitrarily hard....
+
+    # TODO: apply ASN to simplified wikisql grammar -- still should work! No
+    # weaker ground, but no architecure specialization to the dataset either,
+    # we are more moral. Don't need to use formal checker for this...
+
+    # TODO: forward should compute loss directly (b/c of dynamicness)
+    #       create separate method for query gen
     # TODO: print sample of stuff not in glove
+    # TODO: wikisql probably sucks b/c glove is broken
 
 
 if __name__ == '__main__':

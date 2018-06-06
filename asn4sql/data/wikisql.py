@@ -17,6 +17,10 @@ from .. import log
 from ..dbengine import DBEngine
 
 
+class _QueryParseException(Exception):
+    pass
+
+
 class Token:
     """WikiSQL has several forms of the same string as preprocessing.
 
@@ -63,13 +67,14 @@ class Condition:
 
     We store the operation index into Query.CONDITIONAL, the column index
     (corresponding to a table schema referenced by the query containing
-    a condition), and the Token containing the literal being
-    evaluated against."""
+    a condition), and the literal is always assumed to be a span of the
+    input question"""
 
-    def __init__(self, col_idx, op_idx, condition_literal):
+    def __init__(self, col_idx, op_idx, lit_begin, lit_end):
         self.col_idx = col_idx
         self.op_idx = op_idx
-        self.condition_literal = condition_literal
+        self.lit_begin = lit_begin
+        self.lit_end = lit_end
 
     def __eq__(self, other):
         if isinstance(self, other.__class__):
@@ -77,8 +82,12 @@ class Condition:
         return False
 
     def __repr__(self):
-        return 'Condition({}, {}, {})'.format(self.col_idx, self.op_idx,
-                                              self.condition_literal)
+        return 'Condition(col_idx={}, op_idx={}, lit_begin={}, lit_end={})' \
+            .format(self.col_idx, self.op_idx, self.lit_begin, self.lit_end)
+
+    def literal_toks(self, question):
+        """returns the literals from a question"""
+        return question[self.lit_begin:self.lit_end]
 
 
 class Query:
@@ -99,8 +108,6 @@ class Query:
 
     For this reason, Query supports a hard-coded sketch-based
     API.
-
-    TODO: interop with unrestricted SQL AST.
 
     Members:
 
@@ -123,13 +130,20 @@ class Query:
     def __init__(self, query_json, db):
         self.agg_idx = query_json['query']['agg']
         self.sel_idx = query_json['query']['sel']
+        self.question = Token.from_dict_list(query_json['question'])
+        question_tokens = [tok.token for tok in self.question]
         self.conds = []
         for col_idx, op_idx, words in query_json['query']['conds']:
             assert op_idx >= 0 and op_idx <= 2, op_idx
             normalized_words = Token.from_dict_list(words)
-            cond = Condition(col_idx, op_idx, normalized_words)
+            cond_lit_toks = [tok.token for tok in normalized_words]
+            start, end = _find_sublist(question_tokens, cond_lit_toks)
+            if start < 0:
+                raise _QueryParseException(
+                    'expected literal tokens {} to appear in question {}'
+                    .format(cond_lit_toks, question_tokens))
+            cond = Condition(col_idx, op_idx, start, end)
             self.conds.append(cond)
-        self.question = Token.from_dict_list(query_json['question'])
 
         self.column_descriptions = [
             Token.from_dict_list(colname)
@@ -141,8 +155,6 @@ class Query:
 
         self.schema = db.get_schema(self.table_id)
 
-        _validate(self, query_json)
-
     def query_and_params(self):
         """return the true parameterized query and parameter mapping"""
         # TODO: clean this method up
@@ -152,10 +164,10 @@ class Query:
             select = '{}({})'.format(agg, select)
         where_clause = []
         where_map = {}
-        lower = True  # all dirty strings are lower cased for some reason?
+        lower = True  # all unnormalized strings are lowercase for some reason?
         for cond in self.conds:
             col_index, op = cond.col_idx, cond.op_idx
-            val = Token.detokenize(cond.condition_literal)
+            val = Token.detokenize(cond.literal_toks(self.question))
             if lower and isinstance(val, (str, bytes)):
                 val = val.lower()
             if self.schema['col{}'.format(
@@ -224,15 +236,7 @@ def wikisql(toy):
         os.path.join(wikisql_dir, 'dbs', 'test.db'), toy)
 
     # TODO:
-    # 1. The tokens returned here are generally unclean. The query tokens
-    #    across condition literals, questions, and columns can be viewed with
-    #    the following recipe (sorted by length).
-    #    conds = [norm_str.token for q in queries
-    #             for cond in q.conds for norm_str in cond.condition_literal]
-    #    question = [norm_str.token for q in queries
-    #                for norm_str in q.question]
-    #    columns = [norm_str.token for q in queries
-    #               for c in q.columns for norm_str in c]
+    # 1. The tokens returned here are generally unclean.
     #    sorted(list(set(question)), key=len)
     #    E.g., tokens like "alphabet/script" or "college/junior/club" show up,
     #    and they should be broken up into multiple tokens. Some tokens are
@@ -248,7 +252,8 @@ def wikisql(toy):
     #    some metadata associated with fruit to indicate it should be wrapped
     #    in parenthesis. The whitespace between words is also essential,
     #    because the column names need to be reconstructed accurately, with
-    #    fully recovered spacing and hyphenation.
+    #    fully recovered spacing and hyphenation. How is this done in the
+    #    "classical" parsing setting?
     # 3. Type information about the columns should be made
     #    into an enumeration and stored within the queries, as it may
     #    be useful to the algorithm (e.g., numerical condition literals should
@@ -281,120 +286,28 @@ def _load_wikisql_data(jsonl_path, db_path, toy):
     log.debug('reading sql data from {}', jsonl_path)
     with open(jsonl_path, 'r') as f:
         query_json = ''
-        try:
-            max_lines = 1000 if toy else _count_lines(jsonl_path)
-            for line in tqdm(itertools.islice(f, max_lines), total=max_lines):
+        max_lines = 1000 if toy else _count_lines(jsonl_path)
+        excs = []
+        for line in tqdm(itertools.islice(f, max_lines), total=max_lines):
+            try:
                 query_json = json.loads(line)
                 query = Query(query_json, db)
                 queries.append(query)
-        except:
-            print('current query:\n{}'.format(
-                json.dumps(query_json, sort_keys=True, indent=4)))
-            raise
+            except _QueryParseException as e:
+                excs.append(e.args[0])
+    log.debug('dropped {} of {} queries{}{}', len(excs),
+              len(excs) + len(queries), ':\n    '
+              if excs else '', '\n    '.join(excs))
 
     return db, queries
 
 
-def _parse_exactly_one(query_words, key):
-    idx = query_words.index(key)
-    assert key not in query_words[idx + 1:]
-    return idx
-
-
-def _extract_delimited(query_words, key, begin=0, end=-1):
-    end = end if end >= 0 else len(query_words)
-    if key not in query_words[begin:end]:
-        return []
-    start_index = query_words.index(key, begin, end)
-    grouped = itertools.groupby(
-        range(start_index, end), lambda x: query_words[x] == key)
-    return list(list(group) for k, group in grouped if not k)
-
-
-def _validate(query, query_json):
-    # TODO: clean up and comment this crap
-    true_query = query_json['seq_output']
-    true_query_words = true_query['words']
-    # generic seq_output structure is
-    # symselect symagg <AGGREGATION>? symcol <token>*
-    # (symwhere (symcol <token>* symop <CONDITIONAL> <token>*)
-    #  (symand symcol <token>* symop <CONDITIONAL> <token>*)*)?
-
-    # find and validate locations of main query indicators
-    select_sym_idx, agg_sym_idx, end_sym_idx = (_parse_exactly_one(
-        true_query_words, k) for k in ['symselect', 'symagg', 'symend'])
-    where_sym_idx = -1
-    if 'symwhere' in true_query_words:
-        where_sym_idx = true_query_words.index('symwhere')
-    assert end_sym_idx == len(true_query_words) - 1, (
-        end_sym_idx, len(true_query_words) - 1)
-    assert select_sym_idx == 0, select_sym_idx
-    assert agg_sym_idx == 1, agg_sym_idx
-
-    # find and validate selection columns
-    col_end_idx = where_sym_idx if where_sym_idx >= 0 else end_sym_idx
-    select_cols_idxs = _extract_delimited(true_query_words, 'symcol',
-                                          agg_sym_idx + 1, col_end_idx)
-    assert len(select_cols_idxs) == 1, \
-        'need exactly 1 selection column, found {}'.format(
-            select_cols_idxs)
-    select_col_start_idx = select_cols_idxs[0][0]
-    if agg_sym_idx + 2 < select_col_start_idx:
-        agg = true_query_words[agg_sym_idx + 1]
-        assert query.AGGREGATION.index(agg.upper()) == query.agg_idx, \
-            'aggregation index {} does not match query aggregation {}'.format(
-                query.agg_idx, agg)
-        assert agg_sym_idx + 3 == select_col_start_idx, \
-            'symagg index {} must be at most 3 before the first ' \
-            'column name index {} with {} agg'.format(
-                agg_sym_idx, select_col_start_idx, agg)
-    else:
-        assert query.agg_idx == 0, \
-            'query with aggregation index {} right before column start ' \
-            'index {} should have selection index 0'.format(
-                agg_sym_idx, select_col_start_idx)
-        assert agg_sym_idx + 2 == select_col_start_idx, \
-            'symagg index {} must be 2 before the first ' \
-            'column name index {} when null agg'.format(
-                agg_sym_idx, select_col_start_idx)
-
-    def _find_col_from_idxs(col_idxs):
-        col_tokens = [true_query_words[i] for i in col_idxs]
-        for i, col_strs in enumerate(query.column_descriptions):
-            if [col_str.token for col_str in col_strs] == col_tokens:
-                return i
-        raise ValueError(
-            'column with tokens {} not found -- columns are\n{}'.format(
-                col_tokens, query.column_descriptions))
-
-    query_sel_idx = _find_col_from_idxs(select_cols_idxs[0])
-    assert query_sel_idx == query.sel_idx, \
-        'selection column idx in query {} does not match ' \
-        'that of sel_idx {}'.format(query_sel_idx, query.sel_idx)
-
-    def _parse_where_col_idx(where_col_idx):
-        has_symand = true_query_words[where_col_idx[-1]] == 'symand'
-        where_col = [true_query_words[i] for i in where_col_idx]
-        op_sym_idx = _parse_exactly_one(where_col, 'symop')
-        op = true_query_words[where_col_idx[op_sym_idx + 1]]
-        cond_sym_idx = _parse_exactly_one(where_col, 'symcond')
-        assert op_sym_idx + 2 == cond_sym_idx, (op_sym_idx, cond_sym_idx)
-        cond_col_idxs = where_col_idx[:op_sym_idx]
-        cond_lit_idxs = where_col_idx[cond_sym_idx + 1:]
-        if has_symand:
-            cond_lit_idxs = cond_lit_idxs[:-1]
-        col_idx = _find_col_from_idxs(cond_col_idxs)
-        op_idx = query.CONDITIONAL.index(op)
-        literal = Token.from_dict_list(true_query, cond_lit_idxs)
-        return has_symand, Condition(col_idx, op_idx, literal)
-
-    if where_sym_idx >= 0:
-        where_cols_idxs = _extract_delimited(true_query_words, 'symcol',
-                                             where_sym_idx + 1, end_sym_idx)
-        assert where_cols_idxs, 'expecting at least one where column'
-        has_symands, parsed_conds = zip(
-            *map(_parse_where_col_idx, where_cols_idxs))
-        assert all(has_symands[:-1])
-        assert list(parsed_conds) == list(query.conds)
-    else:
-        assert query.conds == []
+def _find_sublist(haystack, needle):
+    # my algs prof can bite me
+    start, end = -1, -1
+    for i in range(len(haystack)):
+        end = i + len(needle)
+        if needle == haystack[i:end]:
+            start = i
+            break
+    return start, end

@@ -46,6 +46,8 @@ main() {
     cmds+=("test -f ./logs/_test/*/1/githash.txt")
     cmds+=("test -f ./logs/_test/*/1/invocation.txt")
     cmds+=("test -f ./logs/_test/*/1/log.txt")
+    cmds+=("rm -rf ./logs/_test")
+    cmds+=("python asn4sql/main/train_sqlnet.py --logroot ./logs/_test --seed 1 --toy")
     cmds+=("test -f ./logs/_test/*/1/untrained_model.pth")
 
     for cmd in "${cmds[@]}"; do
