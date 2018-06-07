@@ -30,7 +30,7 @@ flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 
 def _main(argv):
     seed_all(flags.FLAGS.seed)
-    log_subdir = os.path.join(_flags_hashstr(argv[0]), str(flags.FLAGS.seed))
+    log_subdir = log.flaghash_dirname([argv[0]], ['seed'])
     log.init(log_subdir)
 
     log.debug('downloading and reading pre-annotated wikisql data')
@@ -83,7 +83,8 @@ def _validate_data(all_data):
     print(indent, 'intersection in train/test', len(testqs & trainqs))
     print(indent, 'intersection in val/test', len(testqs & valqs))
 
-    glove = vocab.GloVe(name='6B', dim=300)
+    dim = 50 if flags.FLAGS.toy else 300
+    glove = vocab.GloVe(name='6B', dim=dim)
     conds = [
         norm_str.token for q in train_queries for cond in q.conds
         for norm_str in cond.literal_toks(q.question)

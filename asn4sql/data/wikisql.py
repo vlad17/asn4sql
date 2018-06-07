@@ -264,6 +264,9 @@ def wikisql(toy):
     wikisql_dir = check_or_fetch('wikisql', 'wikisql.tgz', _URL)
     wikisql_dir = os.path.join(wikisql_dir, 'wikisql')
 
+    log.debug('loading spacy tagger')
+    _nlp()
+
     train_db, train_queries = _load_wikisql_data(
         os.path.join(wikisql_dir, 'annotated', 'train.jsonl'),
         os.path.join(wikisql_dir, 'dbs', 'train.db'), toy)
@@ -315,8 +318,10 @@ def _find_sublist(haystack, needle):
             break
     return start, end
 
+
 class _QueryParseException(Exception):
     pass
+
 
 @functools.lru_cache(maxsize=None)
 def _nlp():

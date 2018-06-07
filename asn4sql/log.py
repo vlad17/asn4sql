@@ -24,11 +24,20 @@ And then from any other file, run something this:
 
 The logging directory logdir is placed inside the logging root; the
 invocation flags and various configuration info is placed inside.
+
+Logs are written to {logroot}/{logdir from log.init()}. The following
+files are automatically added to the directory:
+  * githash.txt - repository git hash at time of invocation
+  * invocation.txt - command line invocation to run same experiment
+  * flags.json - json version of invocation flags
+  * flags.flags - absl version of invocation flags
+  * log.txt - debug logs from training
 """
 
 import inspect
 import subprocess
 import os
+import hashlib
 import shutil
 import shlex
 import json
@@ -41,6 +50,59 @@ flags.DEFINE_boolean('quiet', False, 'suppress debug logging output to stdout')
 flags.DEFINE_string('logroot', './logs', 'log root directory')
 
 _PACKAGE_NAME = 'asn4sql'
+
+
+def flaghash_dirname(skip_modules, skip_flags):
+    """
+    Produces the string {flag hash}/{skip_flag0}/{skip_flag1}/.../{skip_flagn},
+    which is useful for making canonical log directories.
+
+    The "skip_flags" are flags that are important enough to encode into the
+    logging directory structure directly. They are assumed to be defined
+    in the corresponding skip_modules and are not included in the computation
+    of the flag hash. The flag hash is constructed from the remaining flags
+    that were specified by modules from this package and skip_modules.
+
+    For example, if a "seed" flag is specified in the main python file
+    my_main.py, which calls log.init with the path returned by
+    flaghash_dirname(['my_main.py'], ['seed']), then after the invocations
+
+    python my_main.py --some_package_flag 1 --seed 1
+    python my_main.py --some_package_flag 1 --seed 2
+    python my_main.py --some_package_flag 2 --seed 1
+
+    We'd have a log directory structure that looks like:
+
+    logroot/
+      {flag hash from some_package_flag=1 and defaults}/
+        seed-1/
+          ...
+        seed-2/
+          ...
+      {flag hash from some_package_flag=2 and defaults}/
+        seed-1/
+          ...
+
+    Note that the flag hash is invariant to the seed settings.
+    """
+    # computes a hash from flags which determine a unique experiment
+    # (which is all flags from this package minus the seed)
+    flags_dict = flags.FLAGS.flags_by_module_dict().copy()
+    flags_dict = {
+        k: {v.name: v.value
+            for v in vs}
+        for k, vs in flags_dict.items()
+        if k in skip_modules or _PACKAGE_NAME in k
+    }
+    path = []
+    for skip_mod, skip_flag in zip(skip_modules, skip_flags):
+        path.append('{}-{}'.format(skip_flag, flags_dict[skip_mod][skip_flag]))
+        del flags_dict[skip_mod][skip_flag]
+    flags_set = [(k, list(sorted(v.items())))
+                 for k, v in sorted(flags_dict.items())]
+    flags_str = str(flags_set).encode('utf-8')
+    head = hashlib.md5(flags_str).hexdigest()
+    return os.path.join(head, *path)
 
 
 class _StackCrawlingFormatter(logging.Formatter):

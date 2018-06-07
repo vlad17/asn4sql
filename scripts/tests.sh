@@ -40,12 +40,12 @@ main() {
     cmds=()
     cmds+=("rm -rf ./logs/_test")
     cmds+=("python asn4sql/main/validate_data.py --logroot ./logs/_test --seed 1 --toy")
-    cmds+=("test -f ./logs/_test/*/1/log.txt")
-    cmds+=("test -f ./logs/_test/*/1/flags.flags")
-    cmds+=("test -f ./logs/_test/*/1/flags.json")
-    cmds+=("test -f ./logs/_test/*/1/githash.txt")
-    cmds+=("test -f ./logs/_test/*/1/invocation.txt")
-    cmds+=("test -f ./logs/_test/*/1/log.txt")
+    cmds+=("test -f ./logs/_test/*/seed-1/log.txt")
+    cmds+=("test -f ./logs/_test/*/seed-1/flags.flags")
+    cmds+=("test -f ./logs/_test/*/seed-1/flags.json")
+    cmds+=("test -f ./logs/_test/*/seed-1/githash.txt")
+    cmds+=("test -f ./logs/_test/*/seed-1/invocation.txt")
+    cmds+=("test -f ./logs/_test/*/seed-1/log.txt")
     cmds+=("rm -rf ./logs/_test")
 
     for cmd in "${cmds[@]}"; do
