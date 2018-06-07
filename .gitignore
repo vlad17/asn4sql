@@ -1,3 +1,6 @@
+# word embeddings
+.vector_cache/*
+
 # Data-dependent things
 data/*
 !data/README.md

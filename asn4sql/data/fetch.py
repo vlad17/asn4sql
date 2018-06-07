@@ -25,6 +25,7 @@ def check_or_fetch(directory, filename, url):
         return directory
 
     os.makedirs(directory, exist_ok=True)
+    # can replace with torchtext.utils.download_from_url, perhaps
     subprocess.check_call(
         ['wget', '--quiet', url, '--output-document', filename], cwd=directory)
     _, ext = os.path.splitext(filename)

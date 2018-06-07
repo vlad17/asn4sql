@@ -14,7 +14,8 @@ install_requires = [
     'babel>=2.6.0',
     'tqdm>=4.23.4',
     'tabulate>=0.8.2',
-    'records>=0.5.2'
+    'records>=0.5.2',
+    'spacy>=2.0.11'
 ]
 
 setup(name="asn4sql", author="RISE Lab", install_requires=install_requires)

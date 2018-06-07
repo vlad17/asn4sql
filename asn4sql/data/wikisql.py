@@ -151,7 +151,8 @@ class Query:
             # weird wikisql standard is to lowercase query literals
             cond_lit_str = Token.detokenize(normalized_words)
             cond_lit_str = cond_lit_str.lower()
-            reconstruct_lit_str = Token.detokenize(self.question[start:end], drop_last=True)
+            reconstruct_lit_str = Token.detokenize(
+                self.question[start:end], drop_last=True)
             reconstruct_lit_str = reconstruct_lit_str.lower()
             if reconstruct_lit_str != cond_lit_str:
                 raise _QueryParseException(
@@ -195,8 +196,9 @@ class Query:
 
         for cond in self.conds:
             col_index, op = cond.col_idx, cond.op_idx
-            val = Token.detokenize(cond.literal_toks(self.question), drop_last=True)
-            val = val.lower() # weird wikisql standard is to lowercase
+            val = Token.detokenize(
+                cond.literal_toks(self.question), drop_last=True)
+            val = val.lower()  # weird wikisql standard is to lowercase
             if self.schema['col{}'.format(
                     col_index)] == 'real' and not isinstance(
                         val, (int, float)):
@@ -263,42 +265,6 @@ def wikisql(toy):
     test_db, test_queries = _load_wikisql_data(
         os.path.join(wikisql_dir, 'annotated', 'test.jsonl'),
         os.path.join(wikisql_dir, 'dbs', 'test.db'), toy)
-
-    # TODO:
-    # 1. The tokens returned here are generally unclean.
-    #    sorted(list(set(question)), key=len)
-    #    E.g., tokens like "alphabet/script" or "college/junior/club" show up,
-    #    and they should be broken up into multiple tokens. Some tokens are
-    #    just punctuation and that may mess stuff up too.
-    #    Consider using nltk here.
-    # 2. When strings are broken up, the whitespace after the string is
-    #    preserved (and stored in the corresponding Token). This
-    #    is not quite a disciplined approach; sometimes the unnormalized
-    #    word corresponding to a token may be associated with punctuation
-    #    before and after it. For example, currently the string
-    #    "apple (fruit)" gets tokenized into [apple, (, fruit, )],
-    #    but a much more natural organization would be [apple, fruit]; with
-    #    some metadata associated with fruit to indicate it should be wrapped
-    #    in parenthesis. The whitespace between words is also essential,
-    #    because the column names need to be reconstructed accurately, with
-    #    fully recovered spacing and hyphenation. How is this done in the
-    #    "classical" parsing setting?
-    # 3. Type information about the columns should be made
-    #    into an enumeration and stored within the queries, as it may
-    #    be useful to the algorithm (e.g., numerical condition literals should
-    #    show up in numerical columns. This would need to be extracted from
-    #    the DB schema.
-    # 4. Inspect which tokens are not available in the glove embedding.
-    # 5. See the SEMPRE paper for various preprocessing tricks to identify
-    #    literals; proper nouns can be recorded as such, and numbers can
-    #    be correspondingly tagged.
-    # 6. It seems like we may need to get a sample of table contents or at the
-    #    very least additional columnar information. For example, the columns
-    #    might contain a low-cardinality set of values that could be useful
-    #    in answering queries with synonyms (e.g., sports table,
-    #    what was the top-scoring men's basketball team in 2008, where the
-    #    sports table has league = {wnba, nba, nhl, nfl} needs to learn
-    #    that the table has an "nba" entry.
 
     return train_db, train_queries, val_db, val_queries, test_db, test_queries
 
