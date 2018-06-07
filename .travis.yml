@@ -12,10 +12,11 @@ install:
   - conda config --set always_yes yes --set changeps1 no
   - conda update -q conda
   - conda info -a
-  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION pytorch scipy -c pytorch
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION
   - source activate test-environment
   - travis_retry ./scripts/install-pytorch.sh
   - travis_retry pip install --editable .
+  - travis_retry python -m spacy download en_core_web_lg >/dev/null
 script:
   - "./scripts/format.sh --check" 
   - "./scripts/lint.sh"

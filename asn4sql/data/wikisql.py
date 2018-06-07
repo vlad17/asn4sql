@@ -7,19 +7,18 @@ Note datasets are cached.
 import os
 import copy
 import itertools
+import functools
 import json
 import re
 
-from tqdm import tqdm
 from babel.numbers import parse_decimal, NumberFormatError
+from tqdm import tqdm
+import spacy
+from spacy.tokens import Doc
 
 from .fetch import check_or_fetch
 from .. import log
 from ..dbengine import DBEngine
-
-
-class _QueryParseException(Exception):
-    pass
 
 
 class Token:
@@ -169,6 +168,15 @@ class Query:
         if not self.table_id.startswith('table'):
             self.table_id = 'table_{}'.format(self.table_id.replace('-', '_'))
 
+        # add part-of-speech tags per coarse2fine
+        nlp = _nlp()
+        word_list = [tok.original for tok in self.question]
+        space_list = [tok.after.isspace() for tok in self.question]
+        doc = Doc(nlp.vocab, words=word_list, spaces=space_list)
+        for _, proc in nlp.pipeline:
+            doc = proc(doc)
+        self.pos = [tok.tag_ for tok in doc]
+
         self.schema = db.get_schema(self.table_id)
         self.db = db
 
@@ -256,6 +264,9 @@ def wikisql(toy):
     wikisql_dir = check_or_fetch('wikisql', 'wikisql.tgz', _URL)
     wikisql_dir = os.path.join(wikisql_dir, 'wikisql')
 
+    log.debug('loading spacy tagger')
+    _nlp()
+
     train_db, train_queries = _load_wikisql_data(
         os.path.join(wikisql_dir, 'annotated', 'train.jsonl'),
         os.path.join(wikisql_dir, 'dbs', 'train.db'), toy)
@@ -306,3 +317,12 @@ def _find_sublist(haystack, needle):
             start = i
             break
     return start, end
+
+
+class _QueryParseException(Exception):
+    pass
+
+
+@functools.lru_cache(maxsize=None)
+def _nlp():
+    return spacy.load('en_core_web_lg')
