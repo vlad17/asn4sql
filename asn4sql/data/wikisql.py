@@ -5,6 +5,7 @@ Note datasets are cached.
 """
 
 import os
+import copy
 import itertools
 import json
 import re
@@ -44,8 +45,12 @@ class Token:
                                           self.after)
 
     @staticmethod
-    def detokenize(ls):
+    def detokenize(ls, drop_last=False):
         """Detokenize a list of tokens"""
+        if drop_last:
+            ls = ls[:]
+            if ls:
+                ls[-1] = Token(ls[-1].token, ls[-1].original, '')
         return ''.join(s.original + s.after for s in ls)
 
     @classmethod
@@ -143,6 +148,16 @@ class Query:
                     'expected literal tokens {} to appear in question {}'
                     .format(cond_lit_toks, question_tokens))
             cond = Condition(col_idx, op_idx, start, end)
+            # weird wikisql standard is to lowercase query literals
+            cond_lit_str = Token.detokenize(normalized_words)
+            cond_lit_str = cond_lit_str.lower()
+            reconstruct_lit_str = Token.detokenize(self.question[start:end], drop_last=True)
+            reconstruct_lit_str = reconstruct_lit_str.lower()
+            if reconstruct_lit_str != cond_lit_str:
+                raise _QueryParseException(
+                    'expected query literal "{}" to be the same when '
+                    'reconstructed from the question "{}"'.format(
+                        cond_lit_str, reconstruct_lit_str))
             self.conds.append(cond)
 
         self.column_descriptions = [
@@ -154,22 +169,34 @@ class Query:
             self.table_id = 'table_{}'.format(self.table_id.replace('-', '_'))
 
         self.schema = db.get_schema(self.table_id)
+        self.db = db
+
+    def with_prediction(self, agg_idx, sel_idx, conds):
+        """
+        generate the query associated with possibly different
+        predicted aggregation, selection, and conditional indices.
+        """
+        shallow_copy = copy.copy(self)
+        shallow_copy.agg_idx = agg_idx
+        shallow_copy.sel_idx = sel_idx
+        shallow_copy.conds = conds
+        return shallow_copy
 
     def query_and_params(self):
-        """return the true parameterized query and parameter mapping"""
-        # TODO: clean this method up
+        """
+        return the true parameterized query and parameter mapping of this query
+        """
         select = 'col{}'.format(self.sel_idx)
         agg = Query.AGGREGATION[self.agg_idx]
         if agg:
             select = '{}({})'.format(agg, select)
         where_clause = []
         where_map = {}
-        lower = True  # all unnormalized strings are lowercase for some reason?
+
         for cond in self.conds:
             col_index, op = cond.col_idx, cond.op_idx
-            val = Token.detokenize(cond.literal_toks(self.question))
-            if lower and isinstance(val, (str, bytes)):
-                val = val.lower()
+            val = Token.detokenize(cond.literal_toks(self.question), drop_last=True)
+            val = val.lower() # weird wikisql standard is to lowercase
             if self.schema['col{}'.format(
                     col_index)] == 'real' and not isinstance(
                         val, (int, float)):
@@ -196,7 +223,8 @@ class Query:
         we get rid of the clean col<i> names and replace them with the
         column descriptions.
 
-        Note these are not the real queries being run/generated.
+        Note these are not the real queries being run/generated; those
+        use query parameterization and the mapped column names col<i>.
         """
         query_str, param_map = self.query_and_params()
         for k, v in param_map.items():
@@ -224,6 +252,7 @@ def wikisql(toy):
     # compressed WikiSQL file after the annotation recommended in
     # https://github.com/salesforce/WikiSQL has been run.
     wikisql_dir = check_or_fetch('wikisql', 'wikisql.tgz', _URL)
+    wikisql_dir = os.path.join(wikisql_dir, 'wikisql')
 
     train_db, train_queries = _load_wikisql_data(
         os.path.join(wikisql_dir, 'annotated', 'train.jsonl'),

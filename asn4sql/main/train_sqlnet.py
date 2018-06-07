@@ -119,7 +119,7 @@ def _validate_data(all_data):
     rows = train_db.execute_query(train_queries[-1])
     print('\n'.join(indent + ' ' + r for r in rows))
 
-    word_to_idx, _embeding = data.load_glove()
+    word_to_idx, _embeding = {}, {} # data.load_glove()
     conds = [
         norm_str.token for q in train_queries for cond in q.conds
         for norm_str in cond.literal_toks(q.question)
