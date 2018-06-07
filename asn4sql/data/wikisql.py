@@ -10,8 +10,10 @@ import itertools
 import json
 import re
 
-from tqdm import tqdm
 from babel.numbers import parse_decimal, NumberFormatError
+from tqdm import tqdm
+import spacy
+from spacy.tokens import Doc
 
 from .fetch import check_or_fetch
 from .. import log
@@ -168,6 +170,15 @@ class Query:
         self.table_id = query_json['table_id']
         if not self.table_id.startswith('table'):
             self.table_id = 'table_{}'.format(self.table_id.replace('-', '_'))
+
+        # add part-of-speech tags per coarse2fine
+        nlp = spacy.load('en_core_web_lg')
+        word_list = [tok.original for tok in self.question]
+        space_list = [tok.after.isspace() for tok in self.question]
+        doc = Doc(nlp.vocab, words=word_list, spaces=space_list)
+        for _, proc in nlp.pipeline:
+            doc = proc(doc)
+        self.pos = [tok.tag_ for tok in doc]
 
         self.schema = db.get_schema(self.table_id)
         self.db = db
