@@ -7,6 +7,7 @@ Note datasets are cached.
 import os
 import copy
 import itertools
+import functools
 import json
 import re
 
@@ -18,10 +19,6 @@ from spacy.tokens import Doc
 from .fetch import check_or_fetch
 from .. import log
 from ..dbengine import DBEngine
-
-
-class _QueryParseException(Exception):
-    pass
 
 
 class Token:
@@ -172,7 +169,7 @@ class Query:
             self.table_id = 'table_{}'.format(self.table_id.replace('-', '_'))
 
         # add part-of-speech tags per coarse2fine
-        nlp = spacy.load('en_core_web_lg')
+        nlp = _nlp()
         word_list = [tok.original for tok in self.question]
         space_list = [tok.after.isspace() for tok in self.question]
         doc = Doc(nlp.vocab, words=word_list, spaces=space_list)
@@ -317,3 +314,10 @@ def _find_sublist(haystack, needle):
             start = i
             break
     return start, end
+
+class _QueryParseException(Exception):
+    pass
+
+@functools.lru_cache(maxsize=None)
+def _nlp():
+    return spacy.load('en_core_web_lg')
