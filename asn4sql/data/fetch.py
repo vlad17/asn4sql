@@ -6,6 +6,9 @@ import os
 import subprocess
 
 from absl import flags
+import torch
+
+from .. import log
 
 flags.DEFINE_string('dataroot', './data', 'data caching directory')
 
@@ -38,3 +41,21 @@ def check_or_fetch(directory, filename, url):
         raise ValueError('unknown extension {}'.format(ext))
 
     return directory
+
+
+def cached_fetch(path, gen):
+    """
+    Checks dataroot for the path, and returns the cached pickled object if
+    it exists. Else generates the object with the given gen() function
+    and saves it for next time.
+
+    Uses torch save/load.
+    """
+    path = os.path.join(flags.FLAGS.dataroot, path)
+    if os.path.isfile(path):
+        log.debug('cache hit {}', path)
+        return torch.load(path)
+    log.debug('cache miss {}', path)
+    obj = gen()
+    torch.save(obj, path)
+    return obj
