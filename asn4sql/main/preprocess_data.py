@@ -3,6 +3,7 @@ Preprocess and validate pytorch data.
 
 Writes out the processed data to dataroot/wikisql/parsed_data.pth.
 """
+import os
 
 from absl import app
 from absl import flags
@@ -20,14 +21,23 @@ def _main(argv):
     log_subdir = log.flaghash_dirname([argv[0]], ['seed'])
     log.init(log_subdir)
 
-    log.debug('downloading and reading pre-annotated wikisql data')
     if flags.FLAGS.toy:
         log.debug('using toy data subset')
+    train, val, test = data.cached_fetch(
+        os.path.join(
+            'wikisql',
+            'processed-toy{}.pth'.format(1 if flags.FLAGS.toy else 0)),
+        _gen_data)
+    _validate_data(train, val, test)
+
+
+def _gen_data():
+    log.debug('downloading and reading pre-annotated wikisql data')
     train, val, test = data.wikisql.wikisql(flags.FLAGS.toy)
 
     log.debug('building vocab')
-    train.build_vocab(None, flags.FLAGS.toy)
-    _validate_data(train, val, test)
+    train.build_vocab(None, flags.FLAGS.toy, [val, test])
+    return train, val, test
 
 
 def _validate_data(train, val, test):
@@ -41,7 +51,6 @@ def _validate_data(train, val, test):
         print(indent, 'result:', rows)
 
     print()
-
     trainqs = set(tq.table_id for tq in train.examples)
     valqs = set(tq.table_id for tq in val.examples)
     testqs = set(tq.table_id for tq in test.examples)
@@ -53,20 +62,27 @@ def _validate_data(train, val, test):
     print(indent, 'intersection in train/test', len(testqs & trainqs))
     print(indent, 'intersection in val/test', len(testqs & valqs))
 
+    print()
     question = set(s for q in train.examples for s in q.src)
     columns = set(s for q in train.examples for s in q.tbl
                   if s != data.wikisql.SPLIT_WORD)
-
-    vocab = train.fields['src'].vocab.stoi
+    vocab = data.wikisql.pretrained_vocab(flags.FLAGS.toy).stoi
     nq = sum(c in vocab for c in question)
     nc = sum(c in vocab for c in columns)
     print('words in glove of total words in train')
-    print(
-        indent, 'among questions    {} of {} {:.1%}'.format(
-            nq, len(question), nq / len(question)))
-    print(
-        indent, 'among columns      {} of {} {:.1%}'.format(
-            nc, len(columns), nc / len(columns)))
+    fmt = '{:' + str(len(str(max(len(question), len(columns))))) + 'd}'
+    print(indent,
+          ('among questions    ' + fmt + ' of ' + fmt + ' {:.1%}').format(
+              nq, len(question), nq / len(question)))
+    print(indent,
+          ('among columns      ' + fmt + ' of ' + fmt + ' {:.1%}').format(
+              nc, len(columns), nc / len(columns)))
+
+    print()
+    print('field vocab sizes')
+    for name, field in train.fields.items():
+        if hasattr(field, 'vocab'):
+            print(indent, name, len(field.vocab))
 
 
 if __name__ == '__main__':

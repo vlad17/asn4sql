@@ -44,6 +44,7 @@ The literal is always assumed to be a span of the input question
 (the few examples where this is not the case are dropped).
 """
 
+import collections
 import os
 import itertools
 import functools
@@ -76,7 +77,7 @@ def _wikisql_data_readers(db):
     See inline comments for a description of each column,
 
     src, ent, sel, table_id, tbl, lay, cond_op, cond_col, cond_span_l,
-    cond_span_r, original, after
+    cond_span_r, original, after, agg
 
     Returns the dicitionary keyed by column name for the
     torchtext fields, parsers (query json -> parsed data), and
@@ -394,33 +395,53 @@ class TableDataset(torchtext.data.Dataset):
         """Print the question associated with a query"""
         return ''.join(o + a for o, a in zip(ex.original, ex.after))
 
-    def build_vocab(self, max_size, toy):
+    def build_vocab(self, max_size, toy, other_datasets):
         """
         Build the vocab form pretrained sources.
         """
-        # glove init magnitude based on http://anie.me/On-Torchtext/
-        if toy:
-            pretrained = torchtext.vocab.GloVe(
-                name='6B',
-                cache=os.path.join(flags.FLAGS.dataroot, '.vector_cache'),
-                dim=50,
-                unk_init=lambda x: torch.nn.init.normal_(x, std=0.5))
-        else:
-            pretrained = torchtext.vocab.GloVe(
-                name='840B',
-                cache=os.path.join(flags.FLAGS.dataroot, '.vector_cache'),
-                dim=300,
-                unk_init=lambda x: torch.nn.init.normal_(x, std=0.5))
-
+        pretrained = pretrained_vocab(toy)
         self.fields['ent'].build_vocab(self, max_size=max_size, min_freq=0)
         self.fields['lay'].build_vocab(self, max_size=max_size, min_freq=0)
-        self.fields['src'].build_vocab(
-            self,
-            max_size=max_size,
-            min_freq=0,
-            vectors=pretrained,
-            unk_init=lambda x: torch.nn.init.normal_(x, std=0.5))
-        self.fields['tbl'].vocab = self.fields['src'].vocab
+
+        # Need to keep words used in the dev and test tables as well; else
+        # the GloVe pretrained values for those words will get thrown away.
+        # This isn't cheating because we won't ever train on words in the
+        # test set but not in the training set.
+        shared_fields = ['src', 'tbl']
+        shared_datasets = [self] + other_datasets
+        shared_vocabs = []
+        for field in shared_fields:
+            for dataset in shared_datasets:
+                dataset.fields[field].build_vocab(
+                    dataset,
+                    max_size=max_size,
+                    min_freq=0,
+                    vectors=pretrained,
+                    unk_init=lambda x: torch.nn.init.normal_(x, std=0.5))
+                shared_vocabs.append(dataset.fields[field].vocab)
+        merged_vocab = _merge_vocabs(shared_vocabs)
+        for field in shared_fields:
+            self.fields[field].vocab = merged_vocab
+
+    def __getstate__(self):
+        vocabs = {
+            name: field.vocab
+            for name, field in self.fields.items() if hasattr(field, 'vocab')
+        }
+        return {
+            'examples': self.examples,
+            'db_path': self.db_path,
+            'vocabs': vocabs
+        }
+
+    def __setstate__(self, state):
+        vocabs = state['vocabs']
+        del state['vocabs']
+        self.__dict__.update(state)
+        self.db_engine = DBEngine(self.db_path)
+        _, self.fields, _ = _wikisql_data_readers(self.db_engine)
+        for field_name, vocab in vocabs.items():
+            self.fields[field_name].vocab = vocab
 
 
 def _count_lines(fname):
@@ -507,3 +528,52 @@ def detokenize(original, after, drop_last=False):
         if after:
             after[-1] = ''
     return ''.join(o + a for o, a in zip(original, after))
+
+
+def _merge_vocabs(vocabs):
+    """
+    Merge individual vocabularies (assumed to be generated from disjoint
+    documents) into a larger vocabulary.
+
+    Args:
+        vocabs: `torchtext.vocab.Vocab` vocabularies to be merged
+    Return:
+        `torchtext.vocab.Vocab`
+    """
+    merged = sum([vocab.freqs for vocab in vocabs], collections.Counter())
+    return torchtext.vocab.Vocab(merged, specials=SPECIALS, max_size=None)
+
+
+# hacks until https://github.com/pytorch/text/issues/323 is resolved
+# allowing for pickling the datasets' vocabulary
+
+
+def _vocab_get(self):
+    return dict(self.__dict__, stoi=dict(self.stoi))
+
+
+def _vocab_set(self, state):
+    self.__dict__.update(state)
+    self.stoi = collections.defaultdict(lambda: 0, self.stoi)
+
+
+torchtext.vocab.Vocab.__getstate__ = _vocab_get
+torchtext.vocab.Vocab.__setstate__ = _vocab_set
+
+
+def pretrained_vocab(toy):
+    """fetches a small or large pretrained vocabulary"""
+    # glove init magnitude based on http://anie.me/On-Torchtext/
+    if toy:
+        pretrained = torchtext.vocab.GloVe(
+            name='6B',
+            cache=os.path.join(flags.FLAGS.dataroot, '.vector_cache'),
+            dim=50,
+            unk_init=lambda x: torch.nn.init.normal_(x, std=0.5))
+    else:
+        pretrained = torchtext.vocab.GloVe(
+            name='840B',
+            cache=os.path.join(flags.FLAGS.dataroot, '.vector_cache'),
+            dim=300,
+            unk_init=lambda x: torch.nn.init.normal_(x, std=0.5))
+    return pretrained
