@@ -450,6 +450,12 @@ def _count_lines(fname):
 
 
 def _load_wikisql_data(jsonl_path, db_path, toy):
+    # NOTE: because the tokenizer was StanfordCoreNLP and not spacy,
+    # it's a bit finicky to use the spacy entity recognition in
+    # order to describe the part of speech of all the query questions.
+    # For this reason a slow python loop needs to be used to parse the ent
+    # field of the dataset.
+
     queries = []
     db = DBEngine(db_path)
 
@@ -577,3 +583,47 @@ def pretrained_vocab(toy):
             dim=300,
             unk_init=lambda x: torch.nn.init.normal_(x, std=0.5))
     return pretrained
+
+
+# When using spacy tokenization, the following should be a better way of
+# getting the full spacy pipeline through (observe it directly modifies
+# the query json in a single pass, and then a faster parsing step recovers
+# the examples in a later stage)
+# log.debug('reading json data from {}', jsonl_path)
+
+# log.debug('  reading json data into memory')
+# with open(jsonl_path, 'r') as f:
+#     query_json = ''
+#     max_lines = 1000 if toy else _count_lines(jsonl_path)
+#     query_jsons = []
+#     for line in tqdm(itertools.islice(f, max_lines), total=max_lines):
+#         query_jsons.append(json.loads(line))
+
+# log.debug('  tagging with spacy entity pipeline')
+# nlp = _nlp()
+# words = [detokenize(q['question']['gloss'], q['question']['after'])
+#          for q in query_jsons]
+# pipeline = nlp.pipe(words, batch_size=128, n_threads=_n_procs())
+# for i, doc in enumerate(tqdm(pipeline, total=len(words))):
+#     ent = [tok.tag_ for tok in doc]
+#     query_jsons[i]['question']['ent'] = ent
+#     assert len(ent) == len(query_jsons[i]['question']['gloss']), (list(doc),
+#         query_jsons[i]['question']['gloss'])
+
+# log.debug('  parsing json into torchtext fields')
+# excs = []
+# for query_json in tqdm(query_jsons):
+#     try:
+#         parsed_fields = {
+#             k: parse(query_json)
+#             for k, parse in parsers.items()
+#         }
+#         ex = torchtext.data.Example.fromdict(parsed_fields, ex_fields)
+#         for v in validators.values():
+#             v(query_json, ex)
+#         queries.append(ex)
+#     except _QueryParseException as e:
+#         excs.append(e.args[0])
+# log.debug('dropped {} of {} queries{}{}', len(excs),
+#           len(excs) + len(queries), ':\n    '
+#           if excs else '', '\n    '.join(excs))
