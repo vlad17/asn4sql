@@ -499,7 +499,7 @@ class _QueryParseException(Exception):
 
 @functools.lru_cache(maxsize=None)
 def _nlp():
-    return spacy.load('en_core_web_lg')
+    return spacy.load('en_core_web_lg', disable=['parser', 'ner'])
 
 
 def _parse_span(query_json):
