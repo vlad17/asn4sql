@@ -80,7 +80,7 @@ def encode_unsorted_batch(encoder, tbl, tbl_len):
     tbl_sorted = tbl.index_select(1, Variable(
         torch.LongTensor(idx_sorted).cuda(), requires_grad=False))
     # tbl_context: (seq_len, batch, hidden_size * num_directions)
-    __, tbl_context = encoder(tbl_sorted, tbl_len_sorted)
+    _, tbl_context = encoder(tbl_sorted, tbl_len_sorted)
     # recover the sort for pack()
     v_idx_map_back = Variable(torch.LongTensor(
         idx_map_back).cuda(), requires_grad=False)
@@ -189,7 +189,7 @@ class CondMatchScorer(nn.Module):
 
 
 class CondDecoder(nn.Module):
-    def __init__(self, rnn_type, bidirectional_encoder, num_layers, input_size, hidden_size, attn_type, attn_hidden, dropout, lock_dropout, weight_dropout):
+    def __init__(self, rnn_type, bidirectional_encoder, num_layers, input_size, hidden_size, attn_type, attn_hidden, dropout, lock_dropout, weight_dropout, pad_index):
         super(CondDecoder, self).__init__()
 
         # Basic attributes.
@@ -199,7 +199,7 @@ class CondDecoder(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         if lock_dropout:
-            self.word_dropout = table.modules.LockedDropout(dropout)
+            self.word_dropout = modules.LockedDropout(dropout)
         else:
             self.word_dropout = nn.Dropout(dropout)
 
@@ -208,8 +208,8 @@ class CondDecoder(nn.Module):
                               hidden_size, num_layers, dropout, weight_dropout)
 
         # Set up the standard attention.
-        self.attn = table.modules.GlobalAttention(
-            hidden_size, True, attn_type=attn_type, attn_hidden=attn_hidden)
+        self.attn = modules.GlobalAttention(
+            hidden_size, True, attn_type=attn_type, attn_hidden=attn_hidden, pad_index=pad_index)
 
     def forward(self, emb, context, state):
         """
@@ -240,9 +240,9 @@ class CondDecoder(nn.Module):
         state.update_state(hidden)
 
         # Concatenates sequence of tensors along a new dimension.
-        outputs = torch.stack(outputs)
-        for k in attns:
-            attns[k] = torch.stack(attns[k])
+        # outputs = torch.stack(outputs)
+        # for k in attns:
+        #     attns[k] = torch.stack(attns[k])
 
         return outputs, state, attns
 
@@ -358,7 +358,7 @@ class RNNDecoderState(DecoderState):
 
 
 class CoAttention(nn.Module):
-    def __init__(self, rnn_type, bidirectional, num_layers, hidden_size, dropout, weight_dropout, attn_type, attn_hidden):
+    def __init__(self, rnn_type, bidirectional, num_layers, hidden_size, dropout, weight_dropout, attn_type, attn_hidden, pad_index):
         super(CoAttention, self).__init__()
 
         num_directions = 2 if bidirectional else 1
@@ -367,8 +367,8 @@ class CoAttention(nn.Module):
 
         self.rnn = _build_rnn(rnn_type, 2 * hidden_size, hidden_size //
                               num_directions, num_layers, dropout, weight_dropout, bidirectional)
-        self.attn = table.modules.GlobalAttention(
-            hidden_size, False, attn_type=attn_type, attn_hidden=attn_hidden)
+        self.attn = modules.GlobalAttention(
+            hidden_size, False, attn_type=attn_type, attn_hidden=attn_hidden, pad_index=pad_index)
 
     def forward(self, q_all, lengths, tbl_enc, tbl_mask):
         self.attn.applyMask(tbl_mask.data.unsqueeze(0))
@@ -382,7 +382,6 @@ class CoAttention(nn.Module):
         if not isinstance(lengths, list):
             lengths = lengths.view(-1).tolist()
         packed_emb = pack(emb, lengths)
-
         outputs, hidden_t = self.rnn(packed_emb, None)
 
         outputs = unpack(outputs)[0]
@@ -429,14 +428,9 @@ class ParserModel(nn.Module):
         return cond_context[start_index:cond_context.size(
             0):3]
 
-    def forward(self, q, q_len, ent, tbl, tbl_len, cond_op,
+    def forward(self, q, q_len, ent, tbl, tbl_len, tbl_mask, tbl_split, cond_op,
                 cond_op_len, cond_col, cond_span_l, cond_span_r, lay):
         # encoding
-        is_split = (tbl == self.split_word_index).cpu()
-        tbl_split = torch.stack([
-            torch.nonzero(torch.cat(([1], splits)))
-            for splits in torch.unbind(is_split)])
-        tbl_mask = torch.transpose(tbl == self.pad_word_index, 0, 1)
         q_enc, q_all, tbl_enc, q_ht, batch_size = self.enc(
             q, q_len, ent, tbl, tbl_len, tbl_split, tbl_mask)
 

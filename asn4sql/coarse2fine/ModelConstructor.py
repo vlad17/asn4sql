@@ -22,15 +22,15 @@ flags.DEFINE_enum('global_attention', 'general', ['dot', 'general', 'mlp'],
 flags.DEFINE_enum('rnn_type', 'LSTM', ['LSTM', 'GRU'], 'RNN architecture')
 
 def _padding_idx(vocab):
-    return vocab.stoi(wikisql.PAD_WORD)
+    return vocab.stoi[wikisql.PAD_WORD]
 
 def _split_idx(vocab):
-    return vocab.stoi(wikisql.SPLIT_WORD)
+    return vocab.stoi[wikisql.SPLIT_WORD]
 
 def make_word_embeddings(fields):
     # note: this trains the special tokens as well; need
     # the PartUpdateEmbedding if we don't want this
-    num_words, word_vec_size = fields['src'].vocab.size
+    num_words, word_vec_size = fields['src'].vocab.vectors.size()
     w_embeddings = nn.Embedding(num_words, word_vec_size,
                                 padding_idx=_padding_idx(fields['src'].vocab))
     w_embeddings.weight.data.copy_(fields['src'].vocab.vectors)
@@ -44,9 +44,10 @@ def make_embeddings(word_dict, vec_size):
     return w_embeddings
 
 def make_numerical_embedding(cardinality, vec_size):
-    # -1 as the padding is the standard followed by wikisql
+    # we use the last element as the padding index for
+    # pre-numericalized fields.
     w_embeddings = nn.Embedding(
-        cardinality, vec_size, padding_idx=(-1))
+        cardinality + 1, vec_size, padding_idx=cardinality)
     return w_embeddings
 
 
@@ -67,7 +68,7 @@ def make_table_encoder(embeddings):
     return TableRNNEncoder(make_encoder(embeddings), split_type, merge_type)
 
 
-def make_cond_decoder():
+def make_cond_decoder(pad_index):
     input_size = flags.FLAGS.rnn_size
     dec_layers = 1
     dropout = 0.5
@@ -77,11 +78,11 @@ def make_cond_decoder():
     return CondDecoder(flags.FLAGS.rnn_type, brnn, dec_layers, input_size,
                        flags.FLAGS.rnn_size, flags.FLAGS.global_attention,
                        flags.FLAGS.attn_hidden, dropout, lock_dropout,
-                       weight_dropout)
+                       weight_dropout, pad_index)
 
 
 
-def make_co_attention():
+def make_co_attention(pad_index):
     brnn = True # bidirectional
     enc_layers = 1
     dropout = 0.5
@@ -90,7 +91,8 @@ def make_co_attention():
                        flags.FLAGS.rnn_size,
                        dropout, weight_dropout,
                        flags.FLAGS.global_attention,
-                       flags.FLAGS.attn_hidden)
+                       flags.FLAGS.attn_hidden,
+                       pad_index)
 
 
 def build_model(fields):
@@ -110,7 +112,7 @@ def build_model(fields):
     q_encoder = make_encoder(w_embeddings, ent_embedding)
     # Make table encoder.
     tbl_encoder = make_table_encoder(w_embeddings)
-    co_attention = make_co_attention()
+    co_attention = make_co_attention(_padding_idx(fields['src'].vocab))
     dropout = 0.5
     rnn_size = flags.FLAGS.rnn_size
     agg_classifier = nn.Sequential(
@@ -132,7 +134,7 @@ def build_model(fields):
     lay_encoder = make_encoder(cond_embedding)
 
     # Make cond models.
-    cond_decoder = make_cond_decoder()
+    cond_decoder = make_cond_decoder(len(wikisql.CONDITIONAL))
     cond_col_match = CondMatchScorer(
         MatchScorer(2 * rnn_size, score_size, dropout))
     cond_span_l_match = CondMatchScorer(

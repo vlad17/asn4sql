@@ -10,8 +10,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 import random as rnd
 
-import table
-from table.modules.cross_entropy_smooth import CrossEntropyLossSmooth
+from .modules.cross_entropy_smooth import CrossEntropyLossSmooth
 
 
 class TableLossCompute(nn.Module):

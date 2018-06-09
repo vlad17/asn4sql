@@ -10,9 +10,8 @@ import math
 import torch
 import torch.nn as nn
 
-import table
-import table.modules
-from table.Utils import argmax
+from . import modules
+from .Utils import argmax
 
 
 class Statistics(object):
@@ -70,7 +69,7 @@ def count_accuracy(scores, target, mask=None, row=False):
 def aggregate_accuracy(r_dict, metric_name_list):
     m_list = []
     for metric_name in metric_name_list:
-        m_list.append(r_dict[metric_name][0])
+        m_list.append(r_dict[metric_name][0].long())
     agg = torch.stack(m_list, 0).prod(0, keepdim=False)
     return (agg.sum(), agg.numel())
 
@@ -104,14 +103,14 @@ class Trainer(object):
         tbl, tbl_len = batch.tbl
         cond_op, cond_op_len = batch.cond_op
         agg_out, sel_out, lay_out, cond_col_out, cond_span_l_out, cond_span_r_out = self.model(
-            q, q_len, batch.ent, tbl, tbl_len,
+            q, q_len, batch.ent, tbl, tbl_len, batch.tbl_mask, batch.tbl_split,
             cond_op, cond_op_len, batch.cond_col, batch.cond_span_l, batch.cond_span_r, batch.lay)
 
         # 2. Compute loss.
         pred = {'agg': agg_out, 'sel': sel_out, 'lay': lay_out, 'cond_col': cond_col_out,
                 'cond_span_l': cond_span_l_out, 'cond_span_r': cond_span_r_out}
-        gold = {'agg': batch.agg, 'sel': batch.sel, 'lay': batch.lay, 'cond_col': batch.cond_col_loss,
-                'cond_span_l': batch.cond_span_l_loss, 'cond_span_r': batch.cond_span_r_loss}
+        gold = {'agg': batch.agg, 'sel': batch.sel, 'lay': batch.lay, 'cond_col': batch.cond_col,
+                'cond_span_l': batch.cond_span_l, 'cond_span_r': batch.cond_span_r}
         loss = criterion.compute_loss(pred, gold)
 
         # 3. Get the batch statistics.
@@ -177,19 +176,19 @@ class Trainer(object):
         """ Called for each epoch to update learning rate. """
         return self.optim.updateLearningRate(eval_metric, epoch)
 
-    def drop_checkpoint(self, opt, epoch, fields, valid_stats):
-        """ Called conditionally each epoch to save a snapshot. """
+    # def drop_checkpoint(self, opt, epoch, fields, valid_stats):
+    #     """ Called conditionally each epoch to save a snapshot. """
 
-        model_state_dict = self.model.state_dict()
-        model_state_dict = {k: v for k, v in model_state_dict.items()
-                            if 'generator' not in k}
-        checkpoint = {
-            'model': model_state_dict,
-            'vocab': table.IO.TableDataset.save_vocab(fields),
-            'opt': opt,
-            'epoch': epoch,
-            'optim': self.optim
-        }
-        eval_result = valid_stats.accuracy()
-        torch.save(checkpoint, os.path.join(
-            opt.save_path, 'm_%d.pt' % (epoch)))
+    #     model_state_dict = self.model.state_dict()
+    #     model_state_dict = {k: v for k, v in model_state_dict.items()
+    #                         if 'generator' not in k}
+    #     checkpoint = {
+    #         'model': model_state_dict,
+    #         'vocab': table.IO.TableDataset.save_vocab(fields),
+    #         'opt': opt,
+    #         'epoch': epoch,
+    #         'optim': self.optim
+    #     }
+    #     eval_result = valid_stats.accuracy()
+    #     torch.save(checkpoint, os.path.join(
+    #         opt.save_path, 'm_%d.pt' % (epoch)))

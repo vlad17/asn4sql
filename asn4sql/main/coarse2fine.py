@@ -41,8 +41,12 @@ def _main(argv):
     log.debug('loading data from {}', dataset_file)
     train, val, _ = torch.load(dataset_file)
 
+    drop = ['table_id', 'original', 'after']
+    drop_train, drop_val = data.Subdataset(train, drop), \
+                           data.Subdataset(val, drop)
+
     log.debug('building model')
-    model = coarse2fine.build_model(train.fields)
+    model = coarse2fine.build_model(drop_train.fields)
     log.debug('built model:\n{}', model)
     model = model.to(get_device())
     # TODO use my setup for optimization / training instead with
@@ -50,7 +54,7 @@ def _main(argv):
 
     optim = coarse2fine.Optim()
 
-    coarse2fine.do_training(model, optim, train, val)
+    coarse2fine.do_training(model, optim, drop_train, drop_val)
 
 if __name__ == '__main__':
     app.run(_main)

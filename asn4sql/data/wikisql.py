@@ -77,7 +77,7 @@ def _wikisql_data_readers(db):
     See inline comments for a description of each column,
 
     src, ent, sel, table_id, tbl, lay, cond_op, cond_col, cond_span_l,
-    cond_span_r, original, after, agg
+    cond_span_r, original, after, agg, tbl_split
 
     Returns the dicitionary keyed by column name for the
     torchtext fields, parsers (query json -> parsed data), and
@@ -86,6 +86,7 @@ def _wikisql_data_readers(db):
     fields = {}
     parsers = {}
     validators = {}
+    # TODO need parallel metadata list to hold original, after, and table_id
 
     # src is a sequence of StanfordCoreNLP-tokenized lowercased words for the
     # natural language question being asked in the dataset
@@ -199,7 +200,7 @@ def _wikisql_data_readers(db):
         if not ex.tbl:
             raise _QueryParseException(
                 "require at least one column in each query's table")
-        num_cols = ex.tbl.count(SPLIT_WORD) + 1
+        num_cols = ex.tbl.count(SPLIT_WORD)
         schema_num_cols = len(db.get_schema(ex.table_id))
         if num_cols != schema_num_cols:
             raise _QueryParseException(
@@ -209,6 +210,62 @@ def _wikisql_data_readers(db):
     parsers['tbl'] = _parse_tbl
     fields['tbl'] = field_tbl
     validators['tbl'] = _validate_tbl
+
+    # tbl_split gives the split indices for the columns stored in tbl; i.e.,
+    # tbl_split[i] to tbl_split[i+1] spans the i-th column in the tbl sequence,
+    # including the final SPLIT_WORD. We pad tbl_split with 0s.
+    def _parse_tbl_split(query_json):
+        tbl_split = [0]
+        for col_desc in query_json['table']['header']:
+            tbl_split.append(tbl_split[-1] + len(col_desc['words']) + 1)
+        return tbl_split
+
+    field_tbl_split = torchtext.data.Field(pad_token=0, use_vocab=False)
+
+    def _validate_tbl_split(_query_json, ex):
+        for begin, end in zip(ex.tbl_split, ex.tbl_split[1:]):
+            if (begin >= end
+                or ex.tbl[end - 1] != SPLIT_WORD
+                or SPLIT_WORD in ex.tbl[begin:end-1]):
+                raise _QueryParseException(
+                    'tbl split [{}, {}) does not match a column in header {}'
+                    .format(begin, end, ex.tbl))
+        num_cols = ex.tbl.count(SPLIT_WORD)
+        if len(ex.tbl_split) != num_cols + 1:
+            raise _QueryParseException(
+                'was expecting number of table splits {} to be one greater '
+                'than the number of table columns {}'
+                .format(len(ex.tbl_split), num_cols))
+
+    parsers['tbl_split'] = _parse_tbl_split
+    fields['tbl_split'] = field_tbl_split
+    validators['tbl_split'] = _validate_tbl_split
+
+    # tbl_mask gives the boolean mask for whether the i-th column exists.
+    # This is necessary because in a batch with multiple tbl entries there
+    # exists some true number of columns for each tbl entry, but this varies
+    # from tbl header to tbl header. When batched, this tbl_mask is a matrix
+    # where the i-th row is 0 at index j when j is less than the number
+    # of columns in the i-th tbl in the batch.
+    def _parse_tbl_mask(query_json):
+        num_cols = len(query_json['table']['header'])
+        return [0] * num_cols
+
+    field_tbl_mask = torchtext.data.Field(
+        use_vocab=False, tensor_type=torch.ByteTensor, batch_first=True,
+        pad_token=1)
+
+    def _validate_tbl_mask(_query_json, ex):
+        num_cols = ex.tbl.count(SPLIT_WORD)
+        if len(ex.tbl_mask) != num_cols:
+            raise _QueryParseException(
+                'was expecting tbl mask size {} to be equal to '
+                'the number of table columns {}'
+                .format(len(ex.tbl_mask), num_cols))
+
+    parsers['tbl_mask'] = _parse_tbl_mask
+    fields['tbl_mask'] = field_tbl_mask
+    validators['tbl_mask'] = _validate_tbl_mask
 
     # lay gives the layout, or the sketch used by coarse2fine for building
     # the WHERE conditional clauses. Note that these are NOT lists of indices
@@ -239,7 +296,7 @@ def _wikisql_data_readers(db):
         return [op_idx for _, op_idx, _ in query_json['query']['conds']]
 
     field_cond_op = torchtext.data.Field(
-        include_lengths=True, pad_token=-1, use_vocab=False)
+        include_lengths=True, pad_token=len(CONDITIONAL), use_vocab=False)
 
     def _validate_cond_op(_query_json, ex):
         for op_idx in ex.cond_op:
@@ -252,6 +309,7 @@ def _wikisql_data_readers(db):
     validators['cond_op'] = _validate_cond_op
 
     # cond_col is the list of the column indices for the corresponding filter
+    # coarse2fine relies on the pad token being 0 here and below, ugh...
     def _parse_cond_col(query_json):
         return [col_idx for col_idx, _, _ in query_json['query']['conds']]
 
@@ -387,6 +445,7 @@ class TableDataset(torchtext.data.Dataset):
     def __init__(self, examples, fields, db):
         self.db_path = db.db_path
         self.db_engine = db
+        self._toy_vocab = False
         super().__init__(examples, fields)
 
     @staticmethod
@@ -398,7 +457,7 @@ class TableDataset(torchtext.data.Dataset):
         """
         Build the vocab form pretrained sources.
         """
-        pretrained = pretrained_vocab(toy)
+        self._toy_vocab = toy
         self.fields['ent'].build_vocab(self, max_size=max_size, min_freq=0)
         self.fields['lay'].build_vocab(self, max_size=max_size, min_freq=0)
 
@@ -414,11 +473,10 @@ class TableDataset(torchtext.data.Dataset):
                 dataset.fields[field].build_vocab(
                     dataset,
                     max_size=max_size,
-                    min_freq=0,
-                    vectors=pretrained,
-                    unk_init=lambda x: torch.nn.init.normal_(x, std=0.5))
+                    min_freq=0)
                 shared_vocabs.append(dataset.fields[field].vocab)
-        merged_vocab = _merge_vocabs(shared_vocabs)
+        pretrained = pretrained_vocab(toy)
+        merged_vocab = _merge_vocabs(shared_vocabs, pretrained)
         for field in shared_fields:
             self.fields[field].vocab = merged_vocab
 
@@ -427,6 +485,7 @@ class TableDataset(torchtext.data.Dataset):
             name: field.vocab
             for name, field in self.fields.items() if hasattr(field, 'vocab')
         }
+
         return {
             'examples': self.examples,
             'db_path': self.db_path,
@@ -535,7 +594,7 @@ def detokenize(original, after, drop_last=False):
     return ''.join(o + a for o, a in zip(original, after))
 
 
-def _merge_vocabs(vocabs):
+def _merge_vocabs(vocabs, pretrain):
     """
     Merge individual vocabularies (assumed to be generated from disjoint
     documents) into a larger vocabulary.
@@ -546,7 +605,8 @@ def _merge_vocabs(vocabs):
         `torchtext.vocab.Vocab`
     """
     merged = sum([vocab.freqs for vocab in vocabs], collections.Counter())
-    return torchtext.vocab.Vocab(merged, specials=SPECIALS, max_size=None)
+    return torchtext.vocab.Vocab(
+        merged, vectors=pretrain, specials=SPECIALS, max_size=None)
 
 
 # hacks until https://github.com/pytorch/text/issues/323 is resolved

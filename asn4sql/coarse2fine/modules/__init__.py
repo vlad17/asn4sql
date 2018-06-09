@@ -1,15 +1,7 @@
-from table.modules.UtilClass import LayerNorm, Bottle, BottleLinear, \
+from .UtilClass import LayerNorm, Bottle, BottleLinear, \
     BottleLayerNorm, BottleSoftmax, Elementwise
-from table.modules.Gate import ContextGateFactory
-from table.modules.GlobalAttention import GlobalAttention
-from table.modules.StackedRNN import StackedLSTM, StackedGRU
-from table.modules.LockedDropout import LockedDropout
-from table.modules.WeightDrop import WeightDrop
-
-# # For flake8 compatibility.
-# __all__ = [GlobalAttention, ImageEncoder, CopyGenerator, MultiHeadedAttention,
-#            LayerNorm, Bottle, BottleLinear, BottleLayerNorm, BottleSoftmax,
-#            TransformerEncoder, TransformerDecoder, Elementwise,
-#            MatrixTree, WeightNormConv2d, ConvMultiStepAttention,
-#            CNNEncoder, CNNDecoder, StackedLSTM, StackedGRU, ContextGateFactory,
-#            CopyGeneratorLossCompute]
+from .Gate import ContextGateFactory
+from .GlobalAttention import GlobalAttention
+from .StackedRNN import StackedLSTM, StackedGRU
+from .LockedDropout import LockedDropout
+from .WeightDrop import WeightDrop

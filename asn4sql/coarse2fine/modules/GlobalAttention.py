@@ -1,9 +1,8 @@
 import torch
 import torch.nn as nn
 
-from table.modules.UtilClass import BottleLinear
-from table.Utils import aeq
-import table.IO
+from .UtilClass import BottleLinear
+from ..Utils import aeq
 
 class GlobalAttention(nn.Module):
     """
@@ -40,9 +39,11 @@ class GlobalAttention(nn.Module):
 
     """
 
-    def __init__(self, dim, is_transform_out, attn_type="dot", attn_hidden=0):
+    def __init__(self, dim, is_transform_out, attn_type="dot", attn_hidden=0,
+                 pad_index=1):
         super(GlobalAttention, self).__init__()
 
+        self.pad_index = pad_index
         self.dim = dim
         self.attn_type = attn_type
         self.attn_hidden = attn_hidden
@@ -78,7 +79,7 @@ class GlobalAttention(nn.Module):
         self.mask = mask
 
     def applyMaskBySeqBatch(self, q):
-        self.applyMask(q.data.eq(table.IO.PAD).t().contiguous().unsqueeze(0))
+        self.applyMask(q.data.eq(self.pad_index).t().contiguous().unsqueeze(0))
 
     def score(self, h_t, h_s):
         """

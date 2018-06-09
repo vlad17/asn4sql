@@ -41,14 +41,15 @@ def report_func(epoch, batch, num_batches,
     return report_stats
 
 def _sort_key(ex):
-    s = len(ex.src) + len(ex.ent) + len(ex.tbl) + len(ex.cond_op)
-    s += len(ex.cond_col) + len(ex.cond_span_l) + len(ex.cond_span_r)
-    # TODO filter out original and after somehow from the examples
-    s += len(ex.original) + len(ex.after)
-    return s
+    # (vlad's comment)
+    # would get better packing by considering the lengths of all the var-length
+    # fields but there's a separate packing going on inside the coarse2fine
+    # code somewhere that relies on a src-length-based sorting
+    return len(ex.src)
 
 def do_training(model, optim, train, val):
     """run the training procedure on the given model and optimizer"""
+    optim.set_parameters(model.parameters())
     train_iter = torchtext.data.Iterator(
         dataset=train, batch_size=flags.FLAGS.batch_size, device=get_device(),
         train=True, sort_within_batch=True, sort_key=_sort_key)

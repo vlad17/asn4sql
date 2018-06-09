@@ -44,11 +44,12 @@ class Optim:
         self._step += 1
 
         # Decay method used in tensor2tensor.
+        warmup_steps = 4000
         self._setRate(
-            self.opt.learning_rate *
-            (self.opt.rnn_size ** (-0.5) *
+            flags.FLAGS.learning_rate *
+            (flags.FLAGS.rnn_size ** (-0.5) *
              min(self._step ** (-0.5),
-                 self._step * self.opt.warmup_steps**(-1.5))))
+                 self._step * warmup_steps**(-1.5))))
 
         if self.max_grad_norm:
             clip_grad_norm(self.params, self.max_grad_norm)
@@ -79,7 +80,7 @@ class Optim:
             self.optimizer = optim.SGD(self.params, lr=self.lr)
         elif self.method == 'rmsprop':
             self.optimizer = optim.RMSprop(
-                self.params, lr=self.lr, alpha=self.alpha)
+                self.params, lr=self.lr, alpha=0.95)
         elif self.method == 'adam':
             self.optimizer = optim.Adam(self.params, lr=self.lr,
                                         betas=self.betas, eps=1e-9)
