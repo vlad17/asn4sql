@@ -102,5 +102,6 @@ def get_device():
     assert len(gpulist) <= 1, 'expecting at most one GPU, found {}'.format(
         len(gpulist))
     if len(gpulist) == 1:
+        # no need to set_device b/c we rely on CUDA_VISIBLE_DEVICES
         return torch.device('cuda')
     return torch.device('cpu')

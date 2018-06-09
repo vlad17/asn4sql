@@ -62,13 +62,13 @@ def _validate_data(train, val, test):
     print(indent, 'intersection in train/test', len(testqs & trainqs))
     print(indent, 'intersection in val/test', len(testqs & valqs))
 
+    vocab = data.wikisql.pretrained_vocab(flags.FLAGS.toy).stoi
     for dataset, dataset_name in [(train, 'train'), (val, 'val'), (test,
                                                                    'test')]:
         print()
         question = set(s for q in dataset.examples for s in q.src)
         columns = set(s for q in dataset.examples for s in q.tbl
                       if s != data.wikisql.SPLIT_WORD)
-        vocab = data.wikisql.pretrained_vocab(flags.FLAGS.toy).stoi
         nq = sum(c in vocab for c in question)
         nc = sum(c in vocab for c in columns)
         print('words in glove of total words in', dataset_name)

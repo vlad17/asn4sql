@@ -190,8 +190,7 @@ def _wikisql_data_readers(db):
         for col_desc in query_json['table']['header']:
             flat_cols.extend(col_desc['words'])
             flat_cols.append(SPLIT_WORD)
-        if flat_cols:
-            flat_cols.pop()
+        # note extra split at the end... not my standard! from coarse2fine
         return flat_cols
 
     field_tbl = torchtext.data.Field(pad_token=PAD_WORD, include_lengths=True)
