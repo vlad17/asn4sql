@@ -76,8 +76,8 @@ def _wikisql_data_readers(db):
 
     See inline comments for a description of each column,
 
-    src, ent, sel, table_id, tbl, lay, cond_op, cond_col, cond_span_l,
-    cond_span_r, original, after, agg, tbl_split
+    src, ent, sel, table_id, tbl, cond_op, cond_col, cond_span_l,
+    cond_span_r, original, after, agg
 
     Returns the dicitionary keyed by column name for the
     torchtext fields, parsers (query json -> parsed data), and
@@ -93,7 +93,7 @@ def _wikisql_data_readers(db):
     def _parse_src(query_json):
         return query_json['question']['words']
 
-    field_src = torchtext.data.Field(include_lengths=True, pad_token=PAD_WORD)
+    field_src = torchtext.data.Field(pad_token=PAD_WORD)
 
     def _validate_src(_query_json, _ex):
         pass
@@ -194,7 +194,7 @@ def _wikisql_data_readers(db):
         # note extra split at the end... not my standard! from coarse2fine
         return flat_cols
 
-    field_tbl = torchtext.data.Field(pad_token=PAD_WORD, include_lengths=True)
+    field_tbl = torchtext.data.Field(pad_token=PAD_WORD)
 
     def _validate_tbl(_query_json, ex):
         if not ex.tbl:
@@ -211,84 +211,6 @@ def _wikisql_data_readers(db):
     fields['tbl'] = field_tbl
     validators['tbl'] = _validate_tbl
 
-    # tbl_split gives the split indices for the columns stored in tbl; i.e.,
-    # tbl_split[i] to tbl_split[i+1] spans the i-th column in the tbl sequence,
-    # including the final SPLIT_WORD. We pad tbl_split with 0s.
-    def _parse_tbl_split(query_json):
-        tbl_split = [0]
-        for col_desc in query_json['table']['header']:
-            tbl_split.append(tbl_split[-1] + len(col_desc['words']) + 1)
-        return tbl_split
-
-    field_tbl_split = torchtext.data.Field(pad_token=0, use_vocab=False)
-
-    def _validate_tbl_split(_query_json, ex):
-        for begin, end in zip(ex.tbl_split, ex.tbl_split[1:]):
-            if (begin >= end
-                or ex.tbl[end - 1] != SPLIT_WORD
-                or SPLIT_WORD in ex.tbl[begin:end-1]):
-                raise _QueryParseException(
-                    'tbl split [{}, {}) does not match a column in header {}'
-                    .format(begin, end, ex.tbl))
-        num_cols = ex.tbl.count(SPLIT_WORD)
-        if len(ex.tbl_split) != num_cols + 1:
-            raise _QueryParseException(
-                'was expecting number of table splits {} to be one greater '
-                'than the number of table columns {}'
-                .format(len(ex.tbl_split), num_cols))
-
-    parsers['tbl_split'] = _parse_tbl_split
-    fields['tbl_split'] = field_tbl_split
-    validators['tbl_split'] = _validate_tbl_split
-
-    # tbl_mask gives the boolean mask for whether the i-th column exists.
-    # This is necessary because in a batch with multiple tbl entries there
-    # exists some true number of columns for each tbl entry, but this varies
-    # from tbl header to tbl header. When batched, this tbl_mask is a matrix
-    # where the i-th row is 0 at index j when j is less than the number
-    # of columns in the i-th tbl in the batch.
-    def _parse_tbl_mask(query_json):
-        num_cols = len(query_json['table']['header'])
-        return [0] * num_cols
-
-    field_tbl_mask = torchtext.data.Field(
-        use_vocab=False, tensor_type=torch.ByteTensor, batch_first=True,
-        pad_token=1)
-
-    def _validate_tbl_mask(_query_json, ex):
-        num_cols = ex.tbl.count(SPLIT_WORD)
-        if len(ex.tbl_mask) != num_cols:
-            raise _QueryParseException(
-                'was expecting tbl mask size {} to be equal to '
-                'the number of table columns {}'
-                .format(len(ex.tbl_mask), num_cols))
-
-    parsers['tbl_mask'] = _parse_tbl_mask
-    fields['tbl_mask'] = field_tbl_mask
-    validators['tbl_mask'] = _validate_tbl_mask
-
-    # lay gives the layout, or the sketch used by coarse2fine for building
-    # the WHERE conditional clauses. Note that these are NOT lists of indices
-    # into CONDITIONAL: coarse2fine uses the vocabulary of all *strings* of
-    # layouts, so there is a single string (for all sketches that appear
-    # in the training set).
-    # into indices into CONDITIONAL
-    assert all(len(x) == 1 for x in CONDITIONAL), CONDITIONAL
-
-    def _parse_lay(query_json):
-        op_idxs = [op_idx for _, op_idx, _ in query_json['query']['conds']]
-        ops = [CONDITIONAL[op_idx] for op_idx in op_idxs]
-        return ''.join(ops)
-
-    field_lay = torchtext.data.Field(sequential=False, batch_first=True)
-
-    def _validate_lay(_query_json, _ex):
-        pass
-
-    parsers['lay'] = _parse_lay
-    fields['lay'] = field_lay
-    validators['lay'] = _validate_lay
-
     # cond_op is the list of the conditional operation indices (unlike lay,
     # which is the concatenation of their string values)
     # note since it's a numerical sequence it has a -1 pad token.
@@ -296,7 +218,7 @@ def _wikisql_data_readers(db):
         return [op_idx for _, op_idx, _ in query_json['query']['conds']]
 
     field_cond_op = torchtext.data.Field(
-        include_lengths=True, pad_token=len(CONDITIONAL), use_vocab=False)
+        pad_token=-1, use_vocab=False)
 
     def _validate_cond_op(_query_json, ex):
         for op_idx in ex.cond_op:
@@ -314,7 +236,7 @@ def _wikisql_data_readers(db):
         return [col_idx for col_idx, _, _ in query_json['query']['conds']]
 
     field_cond_col = torchtext.data.Field(
-        include_lengths=False, pad_token=-1, use_vocab=False)
+        pad_token=-1, use_vocab=False)
 
     def _validate_cond_col(_query_json, ex):
         num_cols = len(db.get_schema(ex.table_id))
@@ -335,7 +257,7 @@ def _wikisql_data_readers(db):
         return [l for l, _ in cond]
 
     field_cond_span_l = torchtext.data.Field(
-        include_lengths=False, pad_token=-1, use_vocab=False)
+        pad_token=-1, use_vocab=False)
 
     def _validate_cond_span_l(_query_json, _ex):
         pass
@@ -350,7 +272,7 @@ def _wikisql_data_readers(db):
         return [r for _, r in cond]
 
     field_cond_span_r = torchtext.data.Field(
-        include_lengths=False, pad_token=-1, use_vocab=False)
+        pad_token=-1, use_vocab=False)
 
     def _validate_cond_span_r(_query_json, _ex):
         pass
@@ -459,7 +381,6 @@ class TableDataset(torchtext.data.Dataset):
         """
         self._toy_vocab = toy
         self.fields['ent'].build_vocab(self, max_size=max_size, min_freq=0)
-        self.fields['lay'].build_vocab(self, max_size=max_size, min_freq=0)
 
         # Need to keep words used in the dev and test tables as well; else
         # the GloVe pretrained values for those words will get thrown away.

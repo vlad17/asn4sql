@@ -1,0 +1,1 @@
+from .wikisql_specific_model import WikiSQLSpecificModel
