@@ -19,8 +19,8 @@ import numpy as np
 from asn4sql import log
 from asn4sql import data
 from asn4sql import wikisql_specific
-from asn4sql.utils import (
-    seed_all, gpus, get_device, RollingAverageWindow, intfmt)
+from asn4sql.utils import (seed_all, gpus, get_device, RollingAverageWindow,
+                           intfmt)
 
 # dataset and initialization config
 flags.DEFINE_integer('seed', 1, 'random seed')
@@ -34,14 +34,13 @@ flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 # flags.DEFINE_integer(
 #     'persist_every', 25,
 #     'period of mini-batches between checkpoint persists (0 to disable)')
-flags.DEFINE_integer(
-    'evaluate_every', 1,
-    'period of epochs between evaluations (0 to disable)')
-flags.DEFINE_integer(
-    'max_epochs', 10, 'maximum number of epochs for training')
+flags.DEFINE_integer('evaluate_every', 1,
+                     'period of epochs between evaluations (0 to disable)')
+flags.DEFINE_integer('max_epochs', 10, 'maximum number of epochs for training')
 
 # optimizer
 flags.DEFINE_float('learning_rate', 0.1, 'learning rate')
+
 
 def _main(argv):
     log.debug('found gpus {}', gpus())
@@ -57,12 +56,13 @@ def _main(argv):
     train, val, _ = torch.load(dataset_file)
 
     log.debug('building model')
-    model = wikisql_specific.WikiSQLSpecificModel(train)
+    model = wikisql_specific.WikiSQLSpecificModel(train.fields)
     log.debug('built model:\n{}', model)
     num_parameters = int(sum(p.numel() for p in model.parameters()))
     log.debug('number of parameters in model {}', num_parameters)
 
     _do_training(model, train, val)
+
 
 def _do_training(model, train, val):
     device = get_device()
@@ -99,8 +99,8 @@ def _do_training(model, train, val):
             optimizer.step()
             return
 
-        log.debug('end epoch ' + epochfmt + ' rolling loss {:8.4g}',
-                  epoch, loss_window.value())
+        log.debug('end epoch ' + epochfmt + ' rolling loss {:8.4g}', epoch,
+                  loss_window.value())
 
         if _check_period(epoch, flags.FLAGS.evaluate_every):
             model.eval()
@@ -109,8 +109,8 @@ def _do_training(model, train, val):
             val_diagnostics = _str_diagnostics('val', val_diagnostics)
             train_diagnositcs = _str_diagnostics('train', train_diagnositcs)
             log.debug('epoch ' + epochfmt + ' of ' + epochfmt + '\n{}\n{}',
-                      epoch, flags.FLAGS.max_epochs,
-                      val_diagnostics, train_diagnositcs)
+                      epoch, flags.FLAGS.max_epochs, val_diagnostics,
+                      train_diagnositcs)
             model.train()
 
         # if _check_period(training_state.batch_idx, flags.FLAGS.persist_every):
@@ -121,24 +121,27 @@ def _do_training(model, train, val):
         #     log.debug('persisting model to {}', checkpoint_file)
         #     _save_checkpoint(checkpoint_file, model, optimizer, training_state)
 
+
 def _diagnose(dataset, model):
     sum_diagnostics = {}
     with torch.no_grad():
         for ex in dataset:
             prepared_ex = model.prepare_example(ex)
             diagnostics = model.diagnose(prepare_ex)
-            for k, (name, value, fmt) in diagnostics.items():
+            for k, (value, fmt) in diagnostics.items():
                 if k not in sum_diagnostics:
-                    sum_diagnostics[k] = (name, value, fmt)
+                    sum_diagnostics[k] = (value, fmt)
                 else:
-                    sum_name, sum_value, sum_fmt = sum_diagnostics[k]
-                    assert sum_name == name, (sum_name, name)
+                    sum_value, sum_fmt = sum_diagnostics[k]
                     assert sum_fmt == fmt, (sum_fmt, fmt)
                     sum_value += value
-                    sum_diagnostics[k] = (name, sum_value, fmt)
-    avg_diagnostics = {k: (name, value / len(dataset), fmt)
-                       for k, (name, value, fmt) in sum_diagnostics.items()}
+                    sum_diagnostics[k] = (sum_value, fmt)
+    avg_diagnostics = {
+        k: (value / len(dataset), fmt)
+        for k, (value, fmt) in sum_diagnostics.items()
+    }
     return avg_diagnostics
+
 
 def _str_diagnostics(diagnostics_name, diagnostics):
     preamble = '  ' + diagnostics_name
@@ -148,22 +151,23 @@ def _str_diagnostics(diagnostics_name, diagnostics):
     names = [name for name, _, _ in diagnostics.values()]
     maxlen = max(map(len, names))
     namefmt = '{:>' + str(maxlen) + '}'
-    values = [diagnostics[k] for k in sorted(diagnostics)]
+    values = [(k,) + diagnostics[k] for k in sorted(diagnostics)]
     return preamble + newline_and_indent + newline_and_indent.join(
-            (namefmt + ' ' + valuefmt).format(name, value)
-            for name, value, valuefmt in values)
+        (namefmt + ' ' + valuefmt).format(name, value)
+        for name, value, valuefmt in values)
+
 
 def _check_period(idx, period):
     if period == 0:
         return False
     return idx == 1 or idx == flags.FLAGS.max_batches or idx % period == 0
 
+
 # def _load_checkpoint(checkpoint_file, model, optimizer, training_state):
 #     state_dict = torch.load(checkpoint_file)
 #     model.load_state_dict(state_dict['model'])
 #     optimizer.load_state_dict(state_dict['optimizer'])
 #     training_state.load_state_dict(state_dict['training_state'])
-
 
 # def _save_checkpoint(checkpoint_file, model, optimizer, training_state):
 #     state_dict = {
@@ -175,7 +179,6 @@ def _check_period(idx, period):
 #     os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
 #     with open(checkpoint_file, 'wb') as f:
 #         torch.save(state_dict, f)
-
 
 # class _TrainingState:
 #     def __init__(self):

@@ -102,7 +102,7 @@ class DBEngine:
                 v = "'{}'".format(v)
             query_str = query_str.replace(':' + k, v)
         cols = ' '.join(ex.tbl).split(data.wikisql.SPLIT_WORD)
-        if cols and not cols[-1]: # remove trailing split
+        if cols and not cols[-1]:  # remove trailing split
             cols.pop()
         for i, col_desc in enumerate(s.strip() for s in cols):
             colname = col_desc

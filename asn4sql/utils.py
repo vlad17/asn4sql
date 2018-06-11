@@ -106,6 +106,7 @@ def get_device():
         return torch.device('cuda')
     return torch.device('cpu')
 
+
 def intfmt(maxval):
     """
     returns the appropriate format string for integers that can go up to

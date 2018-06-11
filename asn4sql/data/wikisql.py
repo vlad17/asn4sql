@@ -86,6 +86,7 @@ def _wikisql_data_readers(db):
     fields = {}
     parsers = {}
     validators = {}
+
     # TODO need parallel metadata list to hold original, after, and table_id
 
     # src is a sequence of StanfordCoreNLP-tokenized lowercased words for the
@@ -93,7 +94,7 @@ def _wikisql_data_readers(db):
     def _parse_src(query_json):
         return query_json['question']['words']
 
-    field_src = torchtext.data.Field(pad_token=PAD_WORD)
+    field_src = torchtext.data.Field(tokenize=_tokenize, pad_token=PAD_WORD)
 
     def _validate_src(_query_json, _ex):
         pass
@@ -114,7 +115,7 @@ def _wikisql_data_readers(db):
             doc = proc(doc)
         return [tok.tag_ for tok in doc]
 
-    field_ent = torchtext.data.Field(pad_token=PAD_WORD)
+    field_ent = torchtext.data.Field(tokenize=_tokenize, pad_token=PAD_WORD)
 
     def _validate_ent(_query_json, ex):
         if len(ex.src) != len(ex.ent):
@@ -130,7 +131,8 @@ def _wikisql_data_readers(db):
         return query_json['query']['agg']
 
     field_agg = torchtext.data.Field(
-        sequential=False, use_vocab=False, batch_first=True)
+        tokenize=_tokenize, sequential=False,
+        use_vocab=False, batch_first=True)
 
     def _validate_agg(_query_json, ex):
         if ex.agg < 0 or ex.agg >= len(AGGREGATION):
@@ -148,7 +150,8 @@ def _wikisql_data_readers(db):
         return query_json['query']['sel']
 
     field_sel = torchtext.data.Field(
-        sequential=False, use_vocab=False, batch_first=True)
+        tokenize=_tokenize, sequential=False,
+        use_vocab=False, batch_first=True)
 
     def _validate_sel(_query_json, ex):
         num_cols = len(db.get_schema(ex.table_id))
@@ -170,7 +173,8 @@ def _wikisql_data_readers(db):
         return table_id
 
     field_table_id = torchtext.data.Field(
-        sequential=False, use_vocab=True, batch_first=True)
+        tokenize=_tokenize, sequential=False,
+        use_vocab=True, batch_first=True)
 
     def _validate_table_id(_query_json, ex):
         try:
@@ -194,7 +198,8 @@ def _wikisql_data_readers(db):
         # note extra split at the end... not my standard! from coarse2fine
         return flat_cols
 
-    field_tbl = torchtext.data.Field(pad_token=PAD_WORD)
+    field_tbl = torchtext.data.Field(
+        tokenize=_tokenize, pad_token=PAD_WORD)
 
     def _validate_tbl(_query_json, ex):
         if not ex.tbl:
@@ -218,7 +223,7 @@ def _wikisql_data_readers(db):
         return [op_idx for _, op_idx, _ in query_json['query']['conds']]
 
     field_cond_op = torchtext.data.Field(
-        pad_token=-1, use_vocab=False)
+        tokenize=_tokenize, pad_token=-1, use_vocab=False)
 
     def _validate_cond_op(_query_json, ex):
         for op_idx in ex.cond_op:
@@ -236,7 +241,7 @@ def _wikisql_data_readers(db):
         return [col_idx for col_idx, _, _ in query_json['query']['conds']]
 
     field_cond_col = torchtext.data.Field(
-        pad_token=-1, use_vocab=False)
+        tokenize=_tokenize, pad_token=-1, use_vocab=False)
 
     def _validate_cond_col(_query_json, ex):
         num_cols = len(db.get_schema(ex.table_id))
@@ -257,7 +262,7 @@ def _wikisql_data_readers(db):
         return [l for l, _ in cond]
 
     field_cond_span_l = torchtext.data.Field(
-        pad_token=-1, use_vocab=False)
+        tokenize=_tokenize, pad_token=-1, use_vocab=False)
 
     def _validate_cond_span_l(_query_json, _ex):
         pass
@@ -272,7 +277,7 @@ def _wikisql_data_readers(db):
         return [r for _, r in cond]
 
     field_cond_span_r = torchtext.data.Field(
-        pad_token=-1, use_vocab=False)
+        tokenize=_tokenize, pad_token=-1, use_vocab=False)
 
     def _validate_cond_span_r(_query_json, _ex):
         pass
@@ -286,7 +291,8 @@ def _wikisql_data_readers(db):
     def _parse_original(query_json):
         return query_json['question']['gloss']
 
-    field_original = torchtext.data.Field(pad_token=PAD_WORD)
+    field_original = torchtext.data.Field(
+        tokenize=_tokenize, pad_token=PAD_WORD)
 
     def _validate_original(_query_json, ex):
         if len(ex.src) != len(ex.original):
@@ -303,7 +309,8 @@ def _wikisql_data_readers(db):
     def _parse_after(query_json):
         return query_json['question']['after']
 
-    field_after = torchtext.data.Field(pad_token=PAD_WORD)
+    field_after = torchtext.data.Field(
+        tokenize=_tokenize, pad_token=PAD_WORD)
 
     def _validate_after(query_json, ex):
         if len(ex.src) != len(ex.after):
@@ -392,9 +399,7 @@ class TableDataset(torchtext.data.Dataset):
         for field in shared_fields:
             for dataset in shared_datasets:
                 dataset.fields[field].build_vocab(
-                    dataset,
-                    max_size=max_size,
-                    min_freq=0)
+                    dataset, max_size=max_size, min_freq=0)
                 shared_vocabs.append(dataset.fields[field].vocab)
         pretrained = pretrained_vocab(toy)
         merged_vocab = _merge_vocabs(shared_vocabs, pretrained)
@@ -532,6 +537,9 @@ def _merge_vocabs(vocabs, pretrain):
 
 # hacks until https://github.com/pytorch/text/issues/323 is resolved
 # allowing for pickling the datasets' vocabulary
+
+def _tokenize(s):
+    return s.split()
 
 
 def _vocab_get(self):
