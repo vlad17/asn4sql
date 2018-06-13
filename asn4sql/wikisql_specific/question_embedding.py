@@ -38,18 +38,22 @@ class QuestionEmbedding(nn.Module):
     """
 
     def __init__(self, src_embedding, ent_field):
+        super().__init__()
         self.src_embedding = src_embedding
-        num_words = ent_field.vocab.vectors
+        num_words = len(ent_field.vocab.stoi)
         self.ent_embedding = nn.Embedding(
             num_words, flags.FLAGS.ent_embedding_size)
 
-        self.sequence_size = flags.FLAG.sequence_question_embedding_size
-        self.final_size = flags.FLAG.question_embedding_size
+        self.sequence_size = flags.FLAGS.sequence_question_embedding_size
+        self.final_size = flags.FLAGS.question_embedding_size
 
         assert self.sequence_size % 2 == 0, self.sequence_size
 
+        embedding_dim = (
+            self.src_embedding.embedding_dim +
+            self.ent_embedding.embedding_dim)
         self.lstm = nn.LSTM(
-            self.embedding.embedding_dim, self.sequence_size // 2,
+            embedding_dim, self.sequence_size // 2,
             num_layers=1, bidirectional=True)
         self.summary_lstm = nn.LSTM(self.sequence_size, self.final_size,
                                     num_layers=1, bidirectional=False)

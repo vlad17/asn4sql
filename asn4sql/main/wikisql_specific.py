@@ -97,7 +97,6 @@ def _do_training(model, train, val):
             loss_window.update(loss.detach().cpu().numpy())
             loss.backward()
             optimizer.step()
-            return
 
         log.debug('end epoch ' + epochfmt + ' rolling loss {:8.4g}', epoch,
                   loss_window.value())
@@ -127,14 +126,14 @@ def _diagnose(dataset, model):
     with torch.no_grad():
         for ex in dataset:
             prepared_ex = model.prepare_example(ex)
-            diagnostics = model.diagnose(prepare_ex)
+            diagnostics = model.diagnose(prepared_ex)
             for k, (value, fmt) in diagnostics.items():
                 if k not in sum_diagnostics:
-                    sum_diagnostics[k] = (value, fmt)
+                    sum_diagnostics[k] = (value.detach().cpu().numpy(), fmt)
                 else:
                     sum_value, sum_fmt = sum_diagnostics[k]
                     assert sum_fmt == fmt, (sum_fmt, fmt)
-                    sum_value += value
+                    sum_value += value.detach().cpu().numpy()
                     sum_diagnostics[k] = (sum_value, fmt)
     avg_diagnostics = {
         k: (value / len(dataset), fmt)
@@ -147,11 +146,10 @@ def _str_diagnostics(diagnostics_name, diagnostics):
     preamble = '  ' + diagnostics_name
     if not diagnostics:
         return preamble
-    newline_and_indent = '    \n'
-    names = [name for name, _, _ in diagnostics.values()]
-    maxlen = max(map(len, names))
+    newline_and_indent = '\n    '
+    maxlen = max(map(len, diagnostics))
     namefmt = '{:>' + str(maxlen) + '}'
-    values = [(k,) + diagnostics[k] for k in sorted(diagnostics)]
+    values = [(k,) + diagnostics[k] for k in sorted(diagnostics, key=reversed)]
     return preamble + newline_and_indent + newline_and_indent.join(
         (namefmt + ' ' + valuefmt).format(name, value)
         for name, value, valuefmt in values)

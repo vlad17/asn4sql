@@ -19,6 +19,7 @@ class Pointer(nn.Module):
     with a bilinear form, creating a pointer network.
     """
     def __init__(self, sequence_size, context_size):
+        super().__init__()
         self.inner = nn.Linear(context_size, sequence_size, bias=False)
 
     def forward(self, seq_se, context_c):
@@ -33,4 +34,4 @@ class Pointer(nn.Module):
         returns logits over seq_se as a vector of length s
         """
         attn_weights_e = self.inner(context_c)
-        return torch.dot(seq_se, attn_weights_e)
+        return torch.mv(seq_se, attn_weights_e)

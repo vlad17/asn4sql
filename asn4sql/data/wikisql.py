@@ -65,7 +65,8 @@ AGGREGATION = ['', 'MAX', 'MIN', 'COUNT', 'SUM', 'AVG']
 CONDITIONAL = ['=', '>', '<']
 SPLIT_WORD = '<|>'
 PAD_WORD = '<pad>'
-SPECIALS = [SPLIT_WORD, PAD_WORD]
+UNK_WORD = '<unk>'
+SPECIALS = [UNK_WORD, SPLIT_WORD, PAD_WORD]
 
 
 def _wikisql_data_readers(db):
@@ -94,7 +95,8 @@ def _wikisql_data_readers(db):
     def _parse_src(query_json):
         return query_json['question']['words']
 
-    field_src = torchtext.data.Field(tokenize=_tokenize, pad_token=PAD_WORD)
+    field_src = torchtext.data.Field(
+        batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
 
     def _validate_src(_query_json, _ex):
         pass
@@ -115,7 +117,8 @@ def _wikisql_data_readers(db):
             doc = proc(doc)
         return [tok.tag_ for tok in doc]
 
-    field_ent = torchtext.data.Field(tokenize=_tokenize, pad_token=PAD_WORD)
+    field_ent = torchtext.data.Field(
+        batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
 
     def _validate_ent(_query_json, ex):
         if len(ex.src) != len(ex.ent):
@@ -199,7 +202,7 @@ def _wikisql_data_readers(db):
         return flat_cols
 
     field_tbl = torchtext.data.Field(
-        tokenize=_tokenize, pad_token=PAD_WORD)
+        batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
 
     def _validate_tbl(_query_json, ex):
         if not ex.tbl:
@@ -241,7 +244,7 @@ def _wikisql_data_readers(db):
         return [col_idx for col_idx, _, _ in query_json['query']['conds']]
 
     field_cond_col = torchtext.data.Field(
-        tokenize=_tokenize, pad_token=-1, use_vocab=False)
+        batch_first=True, tokenize=_tokenize, pad_token=-1, use_vocab=False)
 
     def _validate_cond_col(_query_json, ex):
         num_cols = len(db.get_schema(ex.table_id))
@@ -262,7 +265,7 @@ def _wikisql_data_readers(db):
         return [l for l, _ in cond]
 
     field_cond_span_l = torchtext.data.Field(
-        tokenize=_tokenize, pad_token=-1, use_vocab=False)
+        batch_first=True, tokenize=_tokenize, pad_token=-1, use_vocab=False)
 
     def _validate_cond_span_l(_query_json, _ex):
         pass
@@ -277,7 +280,7 @@ def _wikisql_data_readers(db):
         return [r for _, r in cond]
 
     field_cond_span_r = torchtext.data.Field(
-        tokenize=_tokenize, pad_token=-1, use_vocab=False)
+        batch_first=True, tokenize=_tokenize, pad_token=-1, use_vocab=False)
 
     def _validate_cond_span_r(_query_json, _ex):
         pass
@@ -292,7 +295,7 @@ def _wikisql_data_readers(db):
         return query_json['question']['gloss']
 
     field_original = torchtext.data.Field(
-        tokenize=_tokenize, pad_token=PAD_WORD)
+        batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
 
     def _validate_original(_query_json, ex):
         if len(ex.src) != len(ex.original):
@@ -310,7 +313,7 @@ def _wikisql_data_readers(db):
         return query_json['question']['after']
 
     field_after = torchtext.data.Field(
-        tokenize=_tokenize, pad_token=PAD_WORD)
+        batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
 
     def _validate_after(query_json, ex):
         if len(ex.src) != len(ex.after):

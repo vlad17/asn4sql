@@ -47,8 +47,8 @@ class ColumnEmbedding(nn.Module):
         self.embedding = nn.Embedding(*vecs.size())
         self.embedding.weight.data.copy_(vecs)
 
-        self.sequence_size = flags.FLAG.sequence_column_embedding_size
-        self.final_size = flags.FLAG.column_embedding_size
+        self.sequence_size = flags.FLAGS.sequence_column_embedding_size
+        self.final_size = flags.FLAGS.column_embedding_size
 
         assert self.sequence_size % 2 == 0, self.sequence_size
 
@@ -71,8 +71,9 @@ class ColumnEmbedding(nn.Module):
         # e = generic embedding index
         seq_se = self.embedding(seq_s)
         ends = torch.nonzero(seq_s == self.split_idx).detach().cpu().numpy()
+        ends = ends.ravel()
         begins = np.roll(ends, 1)
-        begins[0] = 0
+        begins[0] = 0 # need at least 1 col
         cols_ce = []
         for begin, end in zip(begins, ends):
             # note the LSTM is reinitialized in terms of hidden state to 0
