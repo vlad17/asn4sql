@@ -7,12 +7,13 @@ from absl import flags
 import torch
 from torch import nn
 
-flags.DEFINE_integer('sequence_question_embedding_size', 256,
-                     'hidden state size for the question sequential '
-                     'embedding; this should be even')
-flags.DEFINE_integer('question_embedding_size', 256,
-                     'hidden state size for the whole-table '
-                     'question embedding')
+flags.DEFINE_integer(
+    'sequence_question_embedding_size', 256,
+    'hidden state size for the question sequential '
+    'embedding; this should be even')
+flags.DEFINE_integer(
+    'question_embedding_size', 256, 'hidden state size for the whole-table '
+    'question embedding')
 flags.DEFINE_integer('ent_embedding_size', 128,
                      'embedding size for part-of-speech tags')
 
@@ -41,22 +42,26 @@ class QuestionEmbedding(nn.Module):
         super().__init__()
         self.src_embedding = src_embedding
         num_words = len(ent_field.vocab.stoi)
-        self.ent_embedding = nn.Embedding(
-            num_words, flags.FLAGS.ent_embedding_size)
+        self.ent_embedding = nn.Embedding(num_words,
+                                          flags.FLAGS.ent_embedding_size)
 
         self.sequence_size = flags.FLAGS.sequence_question_embedding_size
         self.final_size = flags.FLAGS.question_embedding_size
 
         assert self.sequence_size % 2 == 0, self.sequence_size
 
-        embedding_dim = (
-            self.src_embedding.embedding_dim +
-            self.ent_embedding.embedding_dim)
+        embedding_dim = (self.src_embedding.embedding_dim +
+                         self.ent_embedding.embedding_dim)
         self.lstm = nn.LSTM(
-            embedding_dim, self.sequence_size // 2,
-            num_layers=1, bidirectional=True)
-        self.summary_lstm = nn.LSTM(self.sequence_size, self.final_size,
-                                    num_layers=1, bidirectional=False)
+            embedding_dim,
+            self.sequence_size // 2,
+            num_layers=1,
+            bidirectional=True)
+        self.summary_lstm = nn.LSTM(
+            self.sequence_size,
+            self.final_size,
+            num_layers=1,
+            bidirectional=False)
 
     def forward(self, src_seq_s, ent_seq_s):
         """

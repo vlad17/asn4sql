@@ -10,11 +10,13 @@ from torch import nn
 
 from ..data import wikisql
 
-flags.DEFINE_integer('sequence_column_embedding_size', 256,
-                     'hidden state size for the per-column embedding; should '
-                     'be even')
+flags.DEFINE_integer(
+    'sequence_column_embedding_size', 256,
+    'hidden state size for the per-column embedding; should '
+    'be even')
 flags.DEFINE_integer('column_embedding_size', 256,
                      'hidden state size for the whole-table column embedding')
+
 
 class ColumnEmbedding(nn.Module):
     """
@@ -53,10 +55,15 @@ class ColumnEmbedding(nn.Module):
         assert self.sequence_size % 2 == 0, self.sequence_size
 
         self.lstm = nn.LSTM(
-            self.embedding.embedding_dim, self.sequence_size // 2,
-            num_layers=1, bidirectional=True)
-        self.summary_lstm = nn.LSTM(self.sequence_size, self.final_size,
-                                    num_layers=1, bidirectional=False)
+            self.embedding.embedding_dim,
+            self.sequence_size // 2,
+            num_layers=1,
+            bidirectional=True)
+        self.summary_lstm = nn.LSTM(
+            self.sequence_size,
+            self.final_size,
+            num_layers=1,
+            bidirectional=False)
 
     def forward(self, seq_s):
         """
@@ -73,7 +80,7 @@ class ColumnEmbedding(nn.Module):
         ends = torch.nonzero(seq_s == self.split_idx).detach().cpu().numpy()
         ends = ends.ravel()
         begins = np.roll(ends, 1)
-        begins[0] = 0 # need at least 1 col
+        begins[0] = 0  # need at least 1 col
         cols_ce = []
         for begin, end in zip(begins, ends):
             # note the LSTM is reinitialized in terms of hidden state to 0

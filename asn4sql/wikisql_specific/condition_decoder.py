@@ -17,6 +17,7 @@ flags.DEFINE_integer('decoder_size', 512, 'hidden state size for the decoder')
 flags.DEFINE_integer('op_embedding_size', 32,
                      'embedding size for conditional operators')
 
+
 class ConditionDecoder(nn.Module):
     """nt_
     The decoder produces seq2seq-style output for the conditional
@@ -38,33 +39,31 @@ class ConditionDecoder(nn.Module):
     to stop the decoding (all the conditional columns
     have been generated).
     """
+
     def __init__(self, col_seq_size, src_seq_size):
         super().__init__()
         num_words = len(wikisql.CONDITIONAL)
-        self.op_embedding = nn.Embedding(
-            num_words, flags.FLAGS.op_embedding_size)
+        self.op_embedding = nn.Embedding(num_words,
+                                         flags.FLAGS.op_embedding_size)
 
-        decoder_input_size = (
-            self.op_embedding.embedding_dim +
-            col_seq_size)
+        decoder_input_size = (self.op_embedding.embedding_dim + col_seq_size)
 
         self.decoder_lstm = nn.LSTM(
-            decoder_input_size, flags.FLAGS.decoder_size,
-            num_layers=1, bidirectional=False)
+            decoder_input_size,
+            flags.FLAGS.decoder_size,
+            num_layers=1,
+            bidirectional=False)
 
         input_size = flags.FLAGS.decoder_size
-        self.stop_logits = MLP(
-            input_size, [], 2)
+        self.stop_logits = MLP(input_size, [], 2)
         input_size += self.stop_logits.output_size
-        self.op_logits = MLP(
-            input_size, [], len(wikisql.CONDITIONAL))
+        self.op_logits = MLP(input_size, [], len(wikisql.CONDITIONAL))
         input_size += self.op_logits.output_size
         self.col_ptr_logits = Pointer(col_seq_size, input_size)
-        input_size += col_seq_size # add an attention context
+        input_size += col_seq_size  # add an attention context
         self.span_l_ptr_logits = Pointer(src_seq_size, input_size)
-        input_size += src_seq_size # same as above
+        input_size += src_seq_size  # same as above
         self.span_r_ptr_logits = Pointer(src_seq_size, input_size)
-
 
     @staticmethod
     def dummy_input(stop=False):
@@ -78,7 +77,7 @@ class ConditionDecoder(nn.Module):
     def _fetch_or_zero(seq, idx):
         _, e = seq.size()
         if idx < 0:
-            return torch.zeros((e,), dtype=seq.dtype, device=get_device())
+            return torch.zeros((e, ), dtype=seq.dtype, device=get_device())
         return seq[idx]
 
     def create_initial_state(self, initial_state_e):
@@ -87,9 +86,8 @@ class ConditionDecoder(nn.Module):
         # just pytorch API massaging (need cells to be
         # initialized as well; not just hidden state)
         initial_decoder_state_11e = initial_state_e.view(1, 1, -1)
-        initial_decoder_state = (
-            initial_decoder_state_11e,
-            torch.zeros_like(initial_decoder_state_11e))
+        initial_decoder_state = (initial_decoder_state_11e,
+                                 torch.zeros_like(initial_decoder_state_11e))
         return initial_decoder_state
 
     def forward(self, hidden_state, decoder_input, sqe_qe, sce_ce):
@@ -131,8 +129,7 @@ class ConditionDecoder(nn.Module):
         # span_r_e = self._fetch_or_zero(sqe_qe, span_r - 1)
         # Also span_r sould get a bilstm summary of span_l
 
-        decoder_input_11i = torch.cat(
-            [op_e, col_e]).view(1, 1, -1)
+        decoder_input_11i = torch.cat([op_e, col_e]).view(1, 1, -1)
 
         decoder_output_11e, hidden_state = self.decoder_lstm(
             decoder_input_11i, hidden_state)
@@ -153,11 +150,10 @@ class ConditionDecoder(nn.Module):
         src_attn_e = sqe_qe.t().mv(F.softmax(span_l_logits_q, dim=0))
         context = torch.cat([context, src_attn_e])
         span_r_logits_q = self.span_r_ptr_logits(sqe_qe, context)
-        span_r_logits_q1 = torch.cat(
-            [self._neg100(), span_r_logits_q])
+        span_r_logits_q1 = torch.cat([self._neg100(), span_r_logits_q])
 
-        return (stop_2, op_logits_o, col_logits_c,
-                span_l_logits_q, span_r_logits_q1), hidden_state
+        return (stop_2, op_logits_o, col_logits_c, span_l_logits_q,
+                span_r_logits_q1), hidden_state
 
     @staticmethod
     def _zeros(*shape):
@@ -170,8 +166,8 @@ class ConditionDecoder(nn.Module):
         col_logits_c = self._zeros(ncols)
         span_l_logits_q = self._zeros(nwords)
         span_r_logits_q = self._zeros(nwords + 1)
-        return (stop_2, op_logits_o, col_logits_c,
-                span_l_logits_q, span_r_logits_q)
+        return (stop_2, op_logits_o, col_logits_c, span_l_logits_q,
+                span_r_logits_q)
 
     @staticmethod
     def _neg100():

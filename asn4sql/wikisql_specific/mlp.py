@@ -9,6 +9,7 @@ from torch.nn import functional as F
 
 # TODO possibly batch norm
 
+
 class MLP(nn.Module):
     """Multi-layer perceptron with no bells or whistles."""
 

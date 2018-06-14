@@ -134,8 +134,10 @@ def _wikisql_data_readers(db):
         return query_json['query']['agg']
 
     field_agg = torchtext.data.Field(
-        tokenize=_tokenize, sequential=False,
-        use_vocab=False, batch_first=True)
+        tokenize=_tokenize,
+        sequential=False,
+        use_vocab=False,
+        batch_first=True)
 
     def _validate_agg(_query_json, ex):
         if ex.agg < 0 or ex.agg >= len(AGGREGATION):
@@ -153,8 +155,10 @@ def _wikisql_data_readers(db):
         return query_json['query']['sel']
 
     field_sel = torchtext.data.Field(
-        tokenize=_tokenize, sequential=False,
-        use_vocab=False, batch_first=True)
+        tokenize=_tokenize,
+        sequential=False,
+        use_vocab=False,
+        batch_first=True)
 
     def _validate_sel(_query_json, ex):
         num_cols = len(db.get_schema(ex.table_id))
@@ -176,8 +180,7 @@ def _wikisql_data_readers(db):
         return table_id
 
     field_table_id = torchtext.data.Field(
-        tokenize=_tokenize, sequential=False,
-        use_vocab=True, batch_first=True)
+        tokenize=_tokenize, sequential=False, use_vocab=True, batch_first=True)
 
     def _validate_table_id(_query_json, ex):
         try:
@@ -540,6 +543,7 @@ def _merge_vocabs(vocabs, pretrain):
 
 # hacks until https://github.com/pytorch/text/issues/323 is resolved
 # allowing for pickling the datasets' vocabulary
+
 
 def _tokenize(s):
     return s.split()

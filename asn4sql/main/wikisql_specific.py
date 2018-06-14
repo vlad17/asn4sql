@@ -149,7 +149,7 @@ def _str_diagnostics(diagnostics_name, diagnostics):
     newline_and_indent = '\n    '
     maxlen = max(map(len, diagnostics))
     namefmt = '{:<' + str(maxlen) + '}'
-    values = [(k,) + diagnostics[k] for k in sorted(diagnostics)]
+    values = [(k, ) + diagnostics[k] for k in sorted(diagnostics)]
     return preamble + newline_and_indent + newline_and_indent.join(
         (namefmt + ' ' + valuefmt).format(name, value)
         for name, value, valuefmt in values)

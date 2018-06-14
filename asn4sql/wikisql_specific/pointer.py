@@ -12,12 +12,14 @@ over the sequence itself.
 import torch
 from torch import nn
 
+
 class Pointer(nn.Module):
     """
     Compute attention logits over a sequence of states of size
     sequence_size according to a context of size context_size
     with a bilinear form, creating a pointer network.
     """
+
     def __init__(self, sequence_size, context_size):
         super().__init__()
         self.inner = nn.Linear(context_size, sequence_size, bias=False)
