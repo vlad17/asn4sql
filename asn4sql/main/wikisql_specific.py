@@ -105,9 +105,10 @@ def _do_training(model, train, val):
         if _check_period(epoch, flags.FLAGS.evaluate_every):
             model.eval()
             val_diagnostics = _diagnose(val, model)
-            train_diagnositcs = _diagnose(train, model)
+            train_diagnositcs = _diagnose(train, model, len(val))
             val_diagnostics = _str_diagnostics('val', val_diagnostics)
-            train_diagnositcs = _str_diagnostics('train', train_diagnositcs)
+            train_diagnositcs = _str_diagnostics('(sampled) train',
+                                                 train_diagnositcs)
             log.debug('epoch ' + epochfmt + ' of ' + epochfmt + '\n{}\n{}',
                       epoch, flags.FLAGS.max_epochs, val_diagnostics,
                       train_diagnositcs)
@@ -122,10 +123,14 @@ def _do_training(model, train, val):
         #     _save_checkpoint(checkpoint_file, model, optimizer, training_state)
 
 
-def _diagnose(dataset, model):
+def _diagnose(dataset, model, subsample=None):
+    if subsample is None:
+        subsample = range(len(dataset))
+    else:
+        subsample = np.random.choice(len(dataset), subsample, replace=False)
     sum_diagnostics = {}
     with torch.no_grad():
-        for ex in dataset:
+        for ex in (dataset[i] for i in subsample):
             prepared_ex = model.prepare_example(ex)
             diagnostics = model.diagnose(prepared_ex)
             for k, (value, fmt) in diagnostics.items():
