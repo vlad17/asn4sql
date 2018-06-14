@@ -116,8 +116,12 @@ class WikiSQLSpecificModel(nn.Module):
                     if self.fields[field].sequential and not attr:
                         prepared[field] = self.fields[field].tensor_type([])
                     else:
+                        # torchtext, for some reason, has a different device
+                        # API than the rest of pytorch
+                        device = get_device()
+                        device = device if device.type == 'cuda' else -1
                         prepared[field] = self.fields[field].process(
-                            [attr], device=get_device(), train=True)[0]
+                            [attr], device=device, train=True)[0]
                 except:
                     print(
                         'field {} being prepared from {}'.format(

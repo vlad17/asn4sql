@@ -43,11 +43,12 @@ flags.DEFINE_float('learning_rate', 0.1, 'learning rate')
 
 
 def _main(argv):
-    log.debug('found gpus {}', gpus())
 
     seed_all(flags.FLAGS.seed)
     log_subdir = log.flaghash_dirname([argv[0]], ['seed'])
     log.init(log_subdir)
+
+    log.debug('found gpus {}', gpus())
 
     dataset_file = os.path.join(
         flags.FLAGS.dataroot, 'wikisql',
