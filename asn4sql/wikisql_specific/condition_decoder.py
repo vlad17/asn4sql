@@ -80,7 +80,8 @@ class ConditionDecoder(nn.Module):
             return torch.zeros((e, ), dtype=seq.dtype, device=get_device())
         return seq[idx]
 
-    def create_initial_state(self, initial_state_e):
+    @staticmethod
+    def create_initial_state(initial_state_e):
         """Given a vector of size flags.FLAGS.decoder_size,
         creates the corresponding initial RNN state"""
         # just pytorch API massaging (need cells to be

@@ -137,8 +137,8 @@ class WikiSQLSpecificModel(nn.Module):
         #     {field: str(getattr(ex, field)) for field in extracted_fields},
         #     sort_keys=True, indent=4))
         # print(json.dumps({
-        #     field: str(value.detach().cpu().numpy().tolist()) for field, value in
-        #     prepared.items()}, sort_keys=True, indent=4))
+        #     field: str(value.detach().cpu().numpy().tolist())
+        #     for field, value in prepared.items()}, sort_keys=True, indent=4))
         return prepared
 
     def predict(self, prepared_ex):
