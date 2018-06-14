@@ -48,7 +48,7 @@ main() {
     cmds+=("test -f ./logs/_test/*/seed-1/invocation.txt")
     cmds+=("test -f ./logs/_test/*/seed-1/log.txt")
     cmds+=("test -f ./data/wikisql/processed-toy1.pth")
-    cmds+=("rm -rf ./logs/_test")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --evaluate_every 1 --max_epochs 1")
 
     for cmd in "${cmds[@]}"; do
         box "${cmd}"
