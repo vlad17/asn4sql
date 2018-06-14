@@ -148,8 +148,8 @@ def _str_diagnostics(diagnostics_name, diagnostics):
         return preamble
     newline_and_indent = '\n    '
     maxlen = max(map(len, diagnostics))
-    namefmt = '{:>' + str(maxlen) + '}'
-    values = [(k,) + diagnostics[k] for k in sorted(diagnostics, key=reversed)]
+    namefmt = '{:<' + str(maxlen) + '}'
+    values = [(k,) + diagnostics[k] for k in sorted(diagnostics)]
     return preamble + newline_and_indent + newline_and_indent.join(
         (namefmt + ' ' + valuefmt).format(name, value)
         for name, value, valuefmt in values)
@@ -158,7 +158,7 @@ def _str_diagnostics(diagnostics_name, diagnostics):
 def _check_period(idx, period):
     if period == 0:
         return False
-    return idx == 1 or idx == flags.FLAGS.max_batches or idx % period == 0
+    return idx == 1 or idx == flags.FLAGS.max_epochs or idx % period == 0
 
 
 # def _load_checkpoint(checkpoint_file, model, optimizer, training_state):

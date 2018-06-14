@@ -223,7 +223,7 @@ class WikiSQLSpecificModel(nn.Module):
         """
         Compute the model loss on the prepared example.
         """
-        value, _ = self.diagnose(prepared_ex)['total loss *']
+        value, _ = self.diagnose(prepared_ex)['loss (*total)']
         return value
 
     @staticmethod
@@ -293,12 +293,12 @@ class WikiSQLSpecificModel(nn.Module):
         sel_acc = sel_acc.type(torch.float32)
 
         return {
-            'total loss *': (cond_loss + agg_loss + sel_loss, '{:8.4g}'),
-            'cond loss': (cond_loss, '{:8.4g}'),
-            'agg loss': (agg_loss, '{:8.4g}'),
-            'sel loss': (sel_loss, '{:8.4g}'),
-            'total acc *': (cond_acc * agg_acc * sel_acc, '{:5.1%}'),
-            'cond acc': (cond_acc, '{:5.1%}'),
-            'agg acc': (agg_acc, '{:5.1%}'),
-            'sel acc': (sel_acc, '{:5.1%}'),
+            'loss (*total)': (cond_loss + agg_loss + sel_loss, '{:8.4g}'),
+            'loss (cond)': (cond_loss, '{:8.4g}'),
+            'loss (agg)': (agg_loss, '{:8.4g}'),
+            'loss (sel)': (sel_loss, '{:8.4g}'),
+            'acc (*total)': (cond_acc * agg_acc * sel_acc, '{:5.1%}'),
+            'acc (cond)': (cond_acc, '{:5.1%}'),
+            'acc (agg)': (agg_acc, '{:5.1%}'),
+            'acc (sel)': (sel_acc, '{:5.1%}'),
         }
