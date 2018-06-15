@@ -229,7 +229,6 @@ def _do_training(model, train, val, trainer, optimizer):
                 grad = torch.cat(
                     tuple(p.grad.data.view(-1) for p in model.parameters()))
                 gradnorm = torch.norm(grad)
-            print('-->', gradnorm)
             grad_window.update(gradnorm.detach().cpu().numpy())
             trainer.opt()
             # optimizer.step()

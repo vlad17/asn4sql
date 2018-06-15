@@ -1,5 +1,6 @@
 from contextlib import closing
 import sys
+from absl import flags
 
 import torch
 from torch import optim
@@ -19,7 +20,6 @@ def _train(model, examples, batch_size):
     grad = torch.cat(
         tuple(p.grad.data.view(-1) for p in model.parameters()))
     gradnorm = torch.norm(grad)
-    print(gradnorm)
     agg_loss = agg_loss.detach().cpu().numpy()
     agg_acc = agg_acc / batch_size
     return agg_loss, agg_acc
