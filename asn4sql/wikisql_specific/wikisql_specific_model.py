@@ -102,7 +102,7 @@ class WikiSQLSpecificModel(nn.Module):
     def prepare_example(self, ex):
         """
         extracts relevant input/output fields from the example and runs
-        torchtext numericalization.
+        torchtext numericalization. returns a dictionary over batched
         """
         extracted_fields = [
             'src', 'ent', 'agg', 'sel', 'tbl', 'cond_op', 'cond_col',
@@ -220,10 +220,13 @@ class WikiSQLSpecificModel(nn.Module):
 
     def forward(self, prepared_ex):
         """
-        Compute the model loss on the prepared example.
+        Compute the model loss on the prepared example as well as whether
+        the example was perfectly guessed.
         """
-        value, _ = self.diagnose(prepared_ex)['loss (*total)']
-        return value
+        results = self.diagnose(prepared_ex)
+        loss, _ = results['loss (*total)']
+        acc, _ = results['acc (*total)']
+        return loss, acc
 
     @staticmethod
     def _truncated_nll_acc(input_il, target_o):
@@ -291,8 +294,8 @@ class WikiSQLSpecificModel(nn.Module):
             'loss (cond)': (cond_loss, '{:8.4g}'),
             'loss (agg)': (agg_loss, '{:8.4g}'),
             'loss (sel)': (sel_loss, '{:8.4g}'),
-            'acc (*total)': (cond_acc * agg_acc * sel_acc, '{:5.1%}'),
-            'acc (cond)': (cond_acc, '{:5.1%}'),
-            'acc (agg)': (agg_acc, '{:5.1%}'),
-            'acc (sel)': (sel_acc, '{:5.1%}'),
+            'acc (*total)': (cond_acc * agg_acc * sel_acc, '{:8.2%}'),
+            'acc (cond)': (cond_acc, '{:8.2%}'),
+            'acc (agg)': (agg_acc, '{:8.2%}'),
+            'acc (sel)': (sel_acc, '{:8.2%}'),
         }
