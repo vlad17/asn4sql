@@ -37,18 +37,20 @@ flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 # flags.DEFINE_integer(
 #     'persist_every', 25,
 #     'period of mini-batches between checkpoint persists (0 to disable)')
-flags.DEFINE_integer('evaluate_every', 1,
+flags.DEFINE_integer('evaluate_every', 5,
                      'period of epochs between evaluations (0 to disable)')
-flags.DEFINE_integer('max_epochs', 10, 'maximum number of epochs for training')
+flags.DEFINE_integer('max_epochs', 100, 'maximum number of epochs for training')
 flags.DEFINE_integer(
     'workers', 4, 'number of CPU workers for parallelizing '
     'training in a data-parallel manner (we only ever use '
     'at most one GPU, but python-heavy processing can be '
     'parallelized. Use a single process if set to 0.')
 # TODO lr decay on val stalls (3 stalls max)
+# TODO dropout, 1 layer agg predictor, copy coarse2fine
+# TODO
 
 # optimizer
-flags.DEFINE_integer('batch_size', 4, 'batch size')
+flags.DEFINE_integer('batch_size', 64, 'batch size')
 flags.DEFINE_float('learning_rate', 0.1, 'initial learning rate')
 
 
@@ -102,9 +104,9 @@ def _do_training(model, train, val, trainer):
 
     def _tqdm_postfix():
         return {
-            'loss': loss_window.value(),
-            'acc': acc_window.value(),
-            'gradnorm': grad_window.value()
+            'loss': '{:06.3f}'.format(loss_window.value()),
+            'acc': '{:05.1%}'.format(acc_window.value()),
+            'gradnorm': '{:08.2e}'.format(grad_window.value())
         }
 
     model.train()

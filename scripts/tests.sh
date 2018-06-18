@@ -49,9 +49,9 @@ main() {
     cmds+=("test -f ./logs/_test/*/seed-1/log.txt")
     cmds+=("test -f ./data/wikisql/processed-toy1.pth")
     cmds+=("rm -rf ./logs/_test2")
-    cmds+=("python asn4sql/main/wikisql_specific.py --toy --evaluate_every 1 --max_epochs 1 --seed 3 --logroot ./logs/_test2 --workers 1")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --evaluate_every 1 --max_epochs 1 --seed 3 --logroot ./logs/_test2 --workers 1 --batch_size 4")
     cmds+=("test -f ./logs/_test2/*/seed-3/untrained_model.pth")
-    cmds+=("python asn4sql/main/wikisql_specific.py --toy --evaluate_every 1 --max_epochs 1 --seed 3 --logroot ./logs/_test2 --workers 0")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --evaluate_every 1 --max_epochs 1 --seed 3 --logroot ./logs/_test2 --workers 0 --batch_size 4")
 
     for cmd in "${cmds[@]}"; do
         box "${cmd}"
