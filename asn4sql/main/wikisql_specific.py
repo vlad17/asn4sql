@@ -40,16 +40,17 @@ flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 flags.DEFINE_integer('evaluate_every', 1,
                      'period of epochs between evaluations (0 to disable)')
 flags.DEFINE_integer('max_epochs', 10, 'maximum number of epochs for training')
-flags.DEFINE_integer('workers', 4,
-                     'number of CPU workers for parallelizing '
-                     'training in a data-parallel manner (we only ever use '
-                     'at most one GPU, but python-heavy processing can be '
-                     'parallelized')
+flags.DEFINE_integer(
+    'workers', 4, 'number of CPU workers for parallelizing '
+    'training in a data-parallel manner (we only ever use '
+    'at most one GPU, but python-heavy processing can be '
+    'parallelized. Use a single process if set to 0.')
 # TODO lr decay on val stalls (3 stalls max)
 
 # optimizer
 flags.DEFINE_integer('batch_size', 4, 'batch size')
 flags.DEFINE_float('learning_rate', 0.1, 'initial learning rate')
+
 
 def _main(argv):
 
@@ -78,7 +79,6 @@ def _main(argv):
     model = model.to(device)
     model = model.share_memory()
 
-
     num_workers = flags.FLAGS.workers
     log.debug('initializing {} workers', num_workers)
     with closing(SyncTrainer(model, num_workers)) as trainer:
@@ -99,10 +99,13 @@ def _do_training(model, train, val, trainer):
     loss_window = RollingAverageWindow(len(train) // 10 // batch_size)
     acc_window = RollingAverageWindow(len(train) // 10 // batch_size)
     grad_window = RollingAverageWindow(len(train) // 10 // batch_size)
+
     def _tqdm_postfix():
-        return {'loss': loss_window.value(),
-                'acc': acc_window.value(),
-                'gradnorm': grad_window.value()}    
+        return {
+            'loss': loss_window.value(),
+            'acc': acc_window.value(),
+            'gradnorm': grad_window.value()
+        }
 
     model.train()
 
@@ -120,7 +123,7 @@ def _do_training(model, train, val, trainer):
                 loss_window.update(loss)
                 acc_window.update(acc)
                 grad_window.update(gradnorm)
-                trainer.step() # auto-zeros grad
+                trainer.step()  # auto-zeros grad
                 progbar.update(len(exs))
                 progbar.set_postfix(**_tqdm_postfix())
 
@@ -171,7 +174,7 @@ def _diagnose(dataset, model, subsample=None):
                     sum_value += value.detach().cpu().numpy()
                     sum_diagnostics[k] = (sum_value, fmt)
     avg_diagnostics = {
-        k: (value / num_items), fmt)
+        k: (value / num_items, fmt)
         for k, (value, fmt) in sum_diagnostics.items()
     }
     return avg_diagnostics
@@ -189,6 +192,7 @@ def _str_diagnostics(diagnostics_name, diagnostics):
         (namefmt + ' ' + valuefmt).format(name, value)
         for name, value, valuefmt in values)
 
+
 def _chunkify(iterable, n):
     # https://stackoverflow.com/questions/8991506
     it = iter(iterable)
@@ -197,6 +201,7 @@ def _chunkify(iterable, n):
         if not chunk:
             return
         yield chunk
+
 
 def _check_period(idx, period):
     if period == 0:

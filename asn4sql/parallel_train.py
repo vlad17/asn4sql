@@ -6,15 +6,16 @@ to the RNN training process.
 from contextlib import closing
 import sys
 
-from absl import flags
 import torch
 import torch.multiprocessing as mp
 from torch import optim
 
+from . import log
 from .utils import get_device, disable_contiguous_rnn_warning
 
 # TODO (much later -- try hogwild; don't use any sync whatsoever,
 # just wait until a whole epoch is complete)
+
 
 class SyncTrainer:
     """
@@ -22,17 +23,24 @@ class SyncTrainer:
     multiplexes the shared model across several processes which
     independently compute sharded minibatch gradients for
     data-parallel SGD.
+
+    If num workers is 0 then do everything in-process
     """
 
     def __init__(self, model, n):
         self.n = n
         self._workers = [_Worker(self.n, i, model) for i in range(self.n)]
+        self._local = None if n else _Remote(model)
+        if self._local:
+            log.debug('using a within-process worker')
 
     def train(self, examples):
         """
         shard and perform fwd/bwd pass on a batch of examples, returning
         mean loss and accuracy.
         """
+        if self._local:
+            return self._local.train(examples, len(examples))
         for worker in self._workers:
             worker.train(examples)
         loss, acc, gradnorm = 0, 0, 0
@@ -45,6 +53,9 @@ class SyncTrainer:
 
     def step(self):
         """step grad on workers (and also zero it)"""
+        if self._local:
+            self._local.step()
+            return
         for worker in self._workers:
             worker.step()
         for worker in self._workers:
@@ -52,6 +63,9 @@ class SyncTrainer:
 
     def zero_grad(self):
         """zero grad on workers"""
+        if self._local:
+            self._local.zero_grad()
+            return
         for worker in self._workers:
             worker.zero_grad()
         for worker in self._workers:
@@ -59,13 +73,18 @@ class SyncTrainer:
 
     def lr(self, lr):
         """update worker lr"""
+        if self._local:
+            self._local.lr(lr)
+            return
         for worker in self._workers:
             worker.lr(lr)
         for worker in self._workers:
             worker.lr_finish()
-            
+
     def close(self):
         """close workers"""
+        if self._local:
+            return
         for worker in self._workers:
             worker.close()
         for worker in self._workers:
@@ -84,6 +103,7 @@ class _Remote:
         self.optimizer = optim.SGD(model.parameters(), lr=0.1)
 
     def zero_grad(self):
+        """zero the optimizer grad"""
         self.optimizer.zero_grad()
 
     def step(self):
@@ -92,16 +112,20 @@ class _Remote:
         self.zero_grad()
 
     def train(self, examples, batch_size):
+        """take sgd steps over the given examples"""
         return _train(self.model, examples, batch_size)
 
     def lr(self, lr):
+        """update the LR"""
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
+
 
 class _Worker:
     """
     A training process, over which batches are multiplexed.
     """
+
     def __init__(self, num_workers, worker_idx, model):
         self._worker_idx = worker_idx
         self._num_workers = num_workers
@@ -111,8 +135,9 @@ class _Worker:
 
         ctx = mp.get_context('forkserver')
         self._conn, child_conn = ctx.Pipe()
-        self._proc = ctx.Process(target=_child_loop, args=(
-            self._conn, child_conn, self._id_str, model))
+        self._proc = ctx.Process(
+            target=_child_loop,
+            args=(self._conn, child_conn, self._id_str, model))
         self._proc.start()
         child_conn.close()
 
@@ -154,7 +179,7 @@ class _Worker:
     def step(self):
         """Take an opt step and zero the gradient"""
         self._push('step', tuple())
-        
+
     def step_finish(self):
         """wait for remote step to finish"""
         self._pull('step')
@@ -172,8 +197,8 @@ class _Worker:
 
     def lr(self, lr):
         """adjust learning rate"""
-        self._push('lr', (lr,))
-        
+        self._push('lr', (lr, ))
+
     def lr_finish(self):
         """wait until lr is adjusted"""
         self._pull('lr')
@@ -198,8 +223,7 @@ def _train(model, examples, batch_size):
         loss.backward(loss_seed)
         agg_loss += loss.detach().cpu().numpy()
         agg_acc += acc.detach().cpu().numpy()
-    grad = torch.cat(
-        tuple(p.grad.data.view(-1) for p in model.parameters()))
+    grad = torch.cat(tuple(p.grad.data.view(-1) for p in model.parameters()))
     # won't be exact grad norm but avg of split grad norm batch
     gradnorm = torch.norm(grad).detach().cpu().numpy()
     agg_loss = agg_loss / batch_size
@@ -225,10 +249,14 @@ def _child_loop(parent_conn, conn, id_str, model):
                     try:
                         conn.send((method_name, ret))
                     except IOError:
-                        print('{} swallowing IOError\n'.format(id_str),
-                              file=sys.stderr, end='')
+                        print(
+                            '{} swallowing IOError\n'.format(id_str),
+                            file=sys.stderr,
+                            end='')
                         sys.stderr.flush()
     except KeyboardInterrupt:
-        print('{} exited cleanly on SIGINT\n'.format(id_str), end='',
-              file=sys.stderr)
+        print(
+            '{} exited cleanly on SIGINT\n'.format(id_str),
+            end='',
+            file=sys.stderr)
         sys.stderr.flush()
