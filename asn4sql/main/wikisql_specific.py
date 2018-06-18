@@ -14,13 +14,13 @@ from absl import app
 from absl import flags
 from contextlib import closing
 import torch
-import torch.multiprocessing as mp
 from torch import optim
 import torch.utils
 from tqdm import tqdm
 import numpy as np
 
 from asn4sql import log
+from asn4sql.parallel_train import SyncTrainer
 from asn4sql import data
 from asn4sql import wikisql_specific
 from asn4sql.utils import (seed_all, gpus, get_device, RollingAverageWindow,
@@ -31,7 +31,6 @@ flags.DEFINE_integer('seed', 1, 'random seed')
 flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 
 # training logistics
-# TODO: batching for batch size > !
 # TODO: checkpointing (and checkpoint restores)
 # flags.DEFINE_string('restore_checkpoint', None, 'checkpoint to restore '
 #                     'training from')
@@ -46,11 +45,11 @@ flags.DEFINE_integer('workers', 4,
                      'training in a data-parallel manner (we only ever use '
                      'at most one GPU, but python-heavy processing can be '
                      'parallelized')
+# TODO lr decay on val stalls (3 stalls max)
 
 # optimizer
 flags.DEFINE_integer('batch_size', 4, 'batch size')
-flags.DEFINE_float('learning_rate', 0.1, 'learning rate')
-
+flags.DEFINE_float('learning_rate', 0.1, 'initial learning rate')
 
 def _main(argv):
 
@@ -77,122 +76,14 @@ def _main(argv):
         model.to(torch.device('cpu')),
         os.path.join(log.logging_directory(), 'untrained_model.pth'))
     model = model.to(device)
-    optimizer = optim.SGD(model.parameters(), lr=flags.FLAGS.learning_rate)
-    # need to init the buffers before sharing
-    loss, _ = model(model.prepare_example(train[0]))
     model = model.share_memory()
 
 
-    with closing(_SharedTrainer(model)) as trainer:
-        _do_training(model, train, val, trainer, optimizer)
-
-# TODO shared memory, only transfer indices.
-class _Worker:
-    """
-    A training process, over which batches are multiplexed.
-    """
-    def __init__(self, num_workers, worker_idx, model):
-        self._worker_idx = worker_idx
-        self._num_workers = num_workers
-        fmt = '{: ' + str(len(str(num_workers))) + 'd}'
-        self._id_str = ('worker ' + fmt + ' of ' + fmt).format(
-            worker_idx, num_workers)
-
-        ctx = mp.get_context('forkserver') # .get_context()#'spawn')
-        self._conn, child_conn = ctx.Pipe()
-        from asn4sql.parallel_train import _child_loop
-        self._proc = ctx.Process(target=_child_loop, args=(
-            self._conn, child_conn, self._id_str, model))
-        self._proc.start()
-        child_conn.close()
-
-    def _lo(self, batch_size):
-        return self._worker_idx * batch_size // self._num_workers
-
-    def _hi(self, batch_size):
-        return (self._worker_idx + 1) * batch_size // self._num_workers
-
-    def _push(self, method_name, args, swallow_errors=False):
-        try:
-            self._conn.send((method_name, args))
-        except IOError as e:
-            if swallow_errors:
-                msg = 'parent swallowing IOError {} from {}\n'.format(
-                    str(e), self._id_str)
-                print(msg, end='', file=sys.stderr)
-            else:
-                raise e
-
-    def _pull(self, expected_name):
-        method_name, result = self._conn.recv()
-        assert method_name == expected_name, (method_name, expected_name)
-        return result
-
-    def train(self, examples):
-        """remote batch sharding train step"""
-        batch_size = len(examples)
-        examples = examples[self._lo(batch_size):self._hi(batch_size)]
-        self._push('train', (examples, batch_size))
-
-    def train_finish(self):
-        """
-        wait until remote train completes; return loss, acc
-        contribution of this worker's part of the batch.
-        """
-        return self._pull('train')
-
-    def opt(self):
-        self._push('opt', None)
-    def opt_finish(self):
-        self._pull('opt')
-
-    def close(self):
-        """initiate remote close"""
-        # racy if, so we swallow errors.
-        if self._proc.is_alive():
-            self._push('close', tuple(), swallow_errors=True)
-
-    def close_finish(self):
-        """join remote worker process"""
-        self._conn.close()
-        self._proc.join()
-
-class _SharedTrainer:
-    def __init__(self, model):
-        self.n = flags.FLAGS.workers
-        self._workers = [_Worker(self.n, i, model) for i in range(self.n)]
-
-    def train(self, examples):
-        """
-        shard and perform fwd/bwd pass on a batch of examples, returning
-        mean loss and accuracy.
-        """
-        for worker in self._workers:
-            worker.train(examples)
-        loss, acc = 0, 0
-        for worker in self._workers:
-            worker_loss, worker_acc = worker.train_finish()
-            loss += worker_loss
-            acc += worker_acc
-        return loss, acc
-
-    def opt(self):
-        """close workers"""
-        for worker in self._workers:
-            worker.opt()
-        for worker in self._workers:
-            worker.opt_finish()
-
-    def close(self):
-        """close workers"""
-        for worker in self._workers:
-            worker.close()
-        for worker in self._workers:
-            worker.close_finish()
-        self._workers = []
+    with closing(SyncTrainer(model)) as trainer:
+        _do_training(model, train, val, trainer)
 
 
-def _do_training(model, train, val, trainer, optimizer):
+def _do_training(model, train, val, trainer):
 
     # training_state = _TrainingState()
     # if flags.FLAGS.restore_checkpoint:
@@ -207,6 +98,8 @@ def _do_training(model, train, val, trainer, optimizer):
 
     model.train()
 
+    trainer.zero_grad()
+    trainer.lr(flags.FLAGS.learning_rate)
     perm = np.arange(len(train))
     for epoch in range(1, 1 + flags.FLAGS.max_epochs):
         epochfmt = intfmt(flags.FLAGS.max_epochs)
@@ -215,17 +108,11 @@ def _do_training(model, train, val, trainer, optimizer):
         np.random.shuffle(perm)
         samples = (train[i] for i in perm)
         for exs in _chunkify(tqdm(samples, total=len(train)), batch_size):
-            # TODO batch size > 1 by not zeroing, see lbs/training.py
-            # optimizer.zero_grad()
-            loss, acc = trainer.train(exs)
-            # prepared_ex = model.prepare_example(ex)
-            # loss, acc = model.forward(prepared_ex)
+            loss, acc, gradnorm = trainer.train(exs)
             loss_window.update(loss)
             acc_window.update(acc)
-            # loss.backward()
-            grad_window.update(0)
-            trainer.opt()
-            # optimizer.step()
+            grad_window.update(gradnorm)
+            trainer.step() # auto-zeros grad
 
         log.debug('end epoch ' + epochfmt +
                   ' rolling loss {:8.4g}'

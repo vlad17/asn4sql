@@ -65,7 +65,7 @@ from ..data import wikisql
 _MAX_COND_LENGTH = 5
 
 flags.DEFINE_integer(
-    'aggregation_hidden', 256, 'aggregation 2-layer classifier has this many '
+    'aggregation_hidden', 64, 'aggregation 2-layer classifier has this many '
     'hidden layer neurons')
 
 

@@ -15,8 +15,8 @@ from .pointer import Pointer
 from ..data import wikisql
 from ..utils import get_device
 
-flags.DEFINE_integer('decoder_size', 512, 'hidden state size for the decoder')
-flags.DEFINE_integer('op_embedding_size', 32,
+flags.DEFINE_integer('decoder_size', 128, 'hidden state size for the decoder')
+flags.DEFINE_integer('op_embedding_size', 16,
                      'embedding size for conditional operators')
 
 

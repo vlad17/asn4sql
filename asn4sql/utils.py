@@ -6,6 +6,7 @@ import os
 import collections
 import hashlib
 import random
+import warnings
 
 import numpy as np
 import torch
@@ -114,3 +115,11 @@ def intfmt(maxval):
     """
     vallen = len(str(maxval))
     return '{:' + str(vallen) + 'd}'
+
+def disable_contiguous_rnn_warning():
+    """
+    disables a warning due to a pytorch bug
+    https://discuss.pytorch.org/t/18969/1
+    """
+    msg = 'RNN module weights are not part of single contiguous chunk of memory'
+    warnings.filterwarnings("ignore", msg, UserWarning)

@@ -11,10 +11,10 @@ from torch import nn
 from ..data import wikisql
 
 flags.DEFINE_integer(
-    'sequence_column_embedding_size', 256,
+    'sequence_column_embedding_size', 64,
     'hidden state size for the per-column embedding; should '
     'be even')
-flags.DEFINE_integer('column_embedding_size', 256,
+flags.DEFINE_integer('column_embedding_size', 64,
                      'hidden state size for the whole-table column embedding')
 
 

@@ -8,13 +8,13 @@ import torch
 from torch import nn
 
 flags.DEFINE_integer(
-    'sequence_question_embedding_size', 256,
+    'sequence_question_embedding_size', 64,
     'hidden state size for the question sequential '
     'embedding; this should be even')
 flags.DEFINE_integer(
-    'question_embedding_size', 256, 'hidden state size for the whole-table '
+    'question_embedding_size', 64, 'hidden state size for the whole-table '
     'question embedding')
-flags.DEFINE_integer('ent_embedding_size', 128,
+flags.DEFINE_integer('ent_embedding_size', 32,
                      'embedding size for part-of-speech tags')
 
 
