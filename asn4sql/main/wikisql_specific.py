@@ -80,8 +80,6 @@ def _main(argv):
     optimizer = optim.SGD(model.parameters(), lr=flags.FLAGS.learning_rate)
     # need to init the buffers before sharing
     loss, _ = model(model.prepare_example(train[0]))
-    loss.backward()
-    optimizer.zero_grad()
     model = model.share_memory()
 
 
@@ -225,11 +223,7 @@ def _do_training(model, train, val, trainer, optimizer):
             loss_window.update(loss)
             acc_window.update(acc)
             # loss.backward()
-            with torch.no_grad():
-                grad = torch.cat(
-                    tuple(p.grad.data.view(-1) for p in model.parameters()))
-                gradnorm = torch.norm(grad)
-            grad_window.update(gradnorm.detach().cpu().numpy())
+            grad_window.update(0)
             trainer.opt()
             # optimizer.step()
 
