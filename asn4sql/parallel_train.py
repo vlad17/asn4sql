@@ -64,7 +64,7 @@ class SyncTrainer:
         for worker in self._workers:
             worker.lr(lr)
         for worker in self._workers:
-            worker.lr_finish(lr)
+            worker.lr_finish()
             
     def close(self):
         """close workers"""
@@ -94,7 +94,7 @@ class _Remote:
         self.zero_grad()
 
     def train(self, examples, batch_size):
-        return _train(self.model, examples)
+        return _train(self.model, examples, batch_size)
 
     def lr(self, lr):
         for param_group in self.optimizer.param_groups:
@@ -182,11 +182,11 @@ class _Worker:
 
     def zero_grad(self):
         """zero the gradient"""
-        self._push('zero_grad')
+        self._push('zero_grad', tuple())
 
     def zero_grad_finish(self):
         """wait until gradient is zeroed"""
-        self._pull()
+        self._pull('zero_grad')
 
 
 def _train(model, examples, batch_size):
@@ -203,7 +203,7 @@ def _train(model, examples, batch_size):
     grad = torch.cat(
         tuple(p.grad.data.view(-1) for p in model.parameters()))
     # won't be exact grad norm but avg of split grad norm batch
-    gradnorm = torch.norm(grad)
+    gradnorm = torch.norm(grad).detach().cpu().numpy()
     agg_loss = agg_loss / batch_size
     agg_acc = agg_acc / batch_size
     return agg_loss, agg_acc, gradnorm

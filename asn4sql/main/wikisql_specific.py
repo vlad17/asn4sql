@@ -95,6 +95,10 @@ def _do_training(model, train, val, trainer):
     loss_window = RollingAverageWindow(len(train) // 10 // batch_size)
     acc_window = RollingAverageWindow(len(train) // 10 // batch_size)
     grad_window = RollingAverageWindow(len(train) // 10 // batch_size)
+    def _tqdm_postfix():
+        return {'loss': loss_window.value(),
+                'acc': acc_window.value(),
+                'gradnorm': grad_window.value()}    
 
     model.train()
 
@@ -107,21 +111,15 @@ def _do_training(model, train, val, trainer):
         # one sample at a time greatly simplifies pytorch seq2seq!
         np.random.shuffle(perm)
         samples = (train[i] for i in perm)
-        for exs in _chunkify(tqdm(samples, total=len(train)), batch_size):
-            loss, acc, gradnorm = trainer.train(exs)
-            loss_window.update(loss)
-            acc_window.update(acc)
-            grad_window.update(gradnorm)
-            trainer.step() # auto-zeros grad
-
-        log.debug('end epoch ' + epochfmt +
-                  ' rolling loss {:8.4g}'
-                  ' rolling acc {:8.4g}'
-                  ' rolling grad norm {:8.4g}',
-                  epoch,
-                  loss_window.value(),
-                  acc_window.value(),
-                  grad_window.value())
+        with tqdm(total=len(train), postfix=_tqdm_postfix()) as progbar:
+            for exs in _chunkify(samples, batch_size):
+                loss, acc, gradnorm = trainer.train(exs)
+                loss_window.update(loss)
+                acc_window.update(acc)
+                grad_window.update(gradnorm)
+                trainer.step() # auto-zeros grad
+                progbar.update(len(exs))
+                progbar.set_postfix(**_tqdm_postfix())
 
         if _check_period(epoch, flags.FLAGS.evaluate_every):
             model.eval()

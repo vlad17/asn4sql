@@ -62,6 +62,8 @@ class RollingAverageWindow:
 
     def value(self):
         """returns the current windowed avg"""
+        if not self._items:
+            return 0
         return self._total / len(self._items)
 
 
