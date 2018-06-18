@@ -79,7 +79,11 @@ def _main(argv):
     model = model.share_memory()
 
 
-    with closing(SyncTrainer(model)) as trainer:
+    num_workers = flags.FLAGS.workers
+    log.debug('initializing {} workers', num_workers)
+    with closing(SyncTrainer(model, num_workers)) as trainer:
+        trainer.zero_grad()
+        log.debug('all {} remote workers initialized', num_workers)
         _do_training(model, train, val, trainer)
 
 
@@ -102,7 +106,6 @@ def _do_training(model, train, val, trainer):
 
     model.train()
 
-    trainer.zero_grad()
     trainer.lr(flags.FLAGS.learning_rate)
     perm = np.arange(len(train))
     for epoch in range(1, 1 + flags.FLAGS.max_epochs):
@@ -120,6 +123,11 @@ def _do_training(model, train, val, trainer):
                 trainer.step() # auto-zeros grad
                 progbar.update(len(exs))
                 progbar.set_postfix(**_tqdm_postfix())
+
+            # heierarichal attention -- bilinear form on two sequences
+            # then apply attention over the matrix
+            # compare to other attention forms (dong and lapata, no
+            # contextualization attention, just attnetion over lstm output)
 
         if _check_period(epoch, flags.FLAGS.evaluate_every):
             model.eval()
@@ -145,8 +153,10 @@ def _do_training(model, train, val, trainer):
 def _diagnose(dataset, model, subsample=None):
     if subsample is None:
         subsample = range(len(dataset))
+        num_items = len(dataset)
     else:
         subsample = np.random.choice(len(dataset), subsample, replace=False)
+        num_items = len(subsample)
     sum_diagnostics = {}
     with torch.no_grad():
         for ex in (dataset[i] for i in subsample):
@@ -161,7 +171,7 @@ def _diagnose(dataset, model, subsample=None):
                     sum_value += value.detach().cpu().numpy()
                     sum_diagnostics[k] = (sum_value, fmt)
     avg_diagnostics = {
-        k: (value / len(dataset), fmt)
+        k: (value / num_items), fmt)
         for k, (value, fmt) in sum_diagnostics.items()
     }
     return avg_diagnostics

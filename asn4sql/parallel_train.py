@@ -16,8 +16,6 @@ from .utils import get_device, disable_contiguous_rnn_warning
 # TODO (much later -- try hogwild; don't use any sync whatsoever,
 # just wait until a whole epoch is complete)
 
-# TODO load dataset remotely, just transfer indices?
-
 class SyncTrainer:
     """
     Accepts a model which already has share_memory() activated;
@@ -26,8 +24,8 @@ class SyncTrainer:
     data-parallel SGD.
     """
 
-    def __init__(self, model):
-        self.n = flags.FLAGS.workers
+    def __init__(self, model, n):
+        self.n = n
         self._workers = [_Worker(self.n, i, model) for i in range(self.n)]
 
     def train(self, examples):
@@ -215,6 +213,8 @@ def _child_loop(parent_conn, conn, id_str, model):
     try:
         with closing(conn):
             remote = _Remote(model)
+            print('{} up and running\n'.format(id_str), end='')
+            sys.stdout.flush()
             while True:
                 method_name, args = conn.recv()
                 if method_name == 'close':
