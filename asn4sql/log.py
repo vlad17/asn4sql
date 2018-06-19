@@ -257,6 +257,7 @@ def _save_invocation(filename):
     with open(filename, 'w') as f:
         print(invocation, file=f)
 
+
 def _save_time(filename):
     now = datetime.now()
     datestr = now.strftime('%a, %b %d, %Y, %X')
