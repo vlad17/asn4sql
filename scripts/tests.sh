@@ -53,6 +53,7 @@ main() {
     cmds+=("test -f ./logs/_test2/*/seed-3/untrained_model.pth")
     cmds+=("test -f ./logs/_test2/*/seed-3/checkpoints/best.pth")
     cmds+=("test -f ./logs/_test2/*/seed-3/checkpoints/1.pth")
+    cmds+=("rm -rf ./logs/_test3")
     cmds+=("python asn4sql/main/wikisql_specific.py --toy --max_epochs 1 --seed 3 --logroot ./logs/_test3 --persist_every 0 --workers 0 --batch_size 4 --restore_checkpoint ./logs/_test2/*/seed-3/checkpoints/1.pth")
     cmds+=("test -f ./logs/_test3/*/seed-3/checkpoints/best.pth")
     cmds+=("test ! -f ./logs/_test3/*/seed-3/checkpoints/1.pth")

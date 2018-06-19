@@ -17,14 +17,17 @@ from .utils import get_device, disable_contiguous_rnn_warning
 # just wait until a whole epoch is complete)
 
 
-class SyncTrainer:
+class SharedGPU:
     """
     Accepts a model which already has share_memory() activated;
     multiplexes the shared model across several processes which
     independently compute sharded minibatch gradients for
-    data-parallel SGD.
+    data-parallel SGD on the same GPU.
 
-    If num workers is 0 then do everything in-process
+    If num workers is 0 then do everything in-process.
+
+    This is useful for recurrent models which have lots of python
+    process interactions during training and evaluation.
     """
 
     def __init__(self, model, n):
@@ -33,6 +36,16 @@ class SyncTrainer:
         self._local = None if n else _Remote(model)
         if self._local:
             log.debug('using a within-process worker')
+
+    def set_mode(self, evaluation=False):
+        """set the mode to eval if evaluation, else to train"""
+        if self._local:
+            self._local.set_mode(evaluation)
+            return
+        for worker in self._workers:
+            worker.set_mode(evaluation)
+        for worker in self._workers:
+            worker.set_mode_finish(evaluation)
 
     def train(self, examples):
         """
@@ -81,6 +94,19 @@ class SyncTrainer:
         for worker in self._workers:
             worker.lr_finish()
 
+    def diagnose(self, examples):
+        """
+        returns a list of diagnostics from model evaluation on each example
+        """
+        if self._local:
+            return self._local.diagnose(examples)
+        for worker in self._workers:
+            worker.diagnose(examples)
+        diagnostics = []
+        for worker in self._workers:
+            diagnostics.extend(worker.diagnose_finish())
+        return diagnostics
+
     def close(self):
         """close workers"""
         if self._local:
@@ -106,6 +132,13 @@ class _Remote:
         """zero the optimizer grad"""
         self.optimizer.zero_grad()
 
+    def set_mode(self, evaluation=False):
+        """set the model evaluation mode"""
+        if evaluation:
+            self.model.eval()
+        else:
+            self.model.train()
+
     def step(self):
         """Steps and zeros"""
         self.optimizer.step()
@@ -119,6 +152,13 @@ class _Remote:
         """update the LR"""
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
+
+    def diagnose(self, examples):
+        """
+        run diagnostics on each example for the model,
+        return a list of diagnostic results for each example
+        """
+        return _diagnose(self.model, examples)
 
 
 class _Worker:
@@ -176,6 +216,19 @@ class _Worker:
         """
         return self._pull('train')
 
+    def diagnose(self, examples):
+        """remote batch sharding diagnose step"""
+        batch_size = len(examples)
+        examples = examples[self._lo(batch_size):self._hi(batch_size)]
+        self._push('diagnose', (examples, ))
+
+    def diagnose_finish(self):
+        """
+        wait until remote diagnose completes; return loss, acc
+        contribution of this worker's part of the batch.
+        """
+        return self._pull('diagnose')
+
     def step(self):
         """Take an opt step and zero the gradient"""
         self._push('step', tuple())
@@ -211,6 +264,14 @@ class _Worker:
         """wait until gradient is zeroed"""
         self._pull('zero_grad')
 
+    def set_mode(self, evaluation):
+        """zero the gradient"""
+        self._push('set_mode', (evaluation, ))
+
+    def set_mode_finish(self):
+        """wait until gradient is zeroed"""
+        self._pull('set_mode')
+
 
 def _train(model, examples, batch_size):
     agg_loss = 0
@@ -223,12 +284,31 @@ def _train(model, examples, batch_size):
         loss.backward(loss_seed)
         agg_loss += loss.detach().cpu().numpy()
         agg_acc += acc.detach().cpu().numpy()
-    grad = torch.cat(tuple(p.grad.data.view(-1) for p in model.parameters()))
+    grad = tuple(
+        p.grad.data.view(-1) for p in model.parameters()
+        if p.grad is not None and p.grad.nelement() > 0)
+    grad = grad or [torch.Tensor()]
     # won't be exact grad norm but avg of split grad norm batch
+    grad = torch.cat(grad)
     gradnorm = torch.norm(grad).detach().cpu().numpy()
+
     agg_loss = agg_loss / batch_size
     agg_acc = agg_acc / batch_size
     return agg_loss, agg_acc, gradnorm
+
+
+def _diagnose(model, examples):
+    diagnostics = []
+    for ex in examples:
+        prepared_ex = model.prepare_example(ex)
+        ex_diagnostics = model.diagnose(prepared_ex)
+        with torch.no_grad():
+            ex_diagnostics = {
+                k: (v.cpu().detach().numpy(), fmt)
+                for k, (v, fmt) in ex_diagnostics.items()
+            }
+        diagnostics.append(ex_diagnostics)
+    return diagnostics
 
 
 def _child_loop(parent_conn, conn, id_str, model):
