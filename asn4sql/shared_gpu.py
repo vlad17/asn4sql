@@ -304,7 +304,7 @@ def _diagnose(model, examples):
         ex_diagnostics = model.diagnose(prepared_ex)
         with torch.no_grad():
             ex_diagnostics = {
-                k: (v.cpu().numpy(), fmt)
+                k: (v.cpu().detach().numpy(), fmt)
                 for k, (v, fmt) in ex_diagnostics.items()
             }
         diagnostics.append(ex_diagnostics)
