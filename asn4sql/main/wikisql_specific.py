@@ -19,7 +19,7 @@ from tqdm import tqdm
 import numpy as np
 
 from asn4sql import log
-from asn4sql.parallel_train import SyncTrainer
+from asn4sql.shared_gpu import SharedGPU
 from asn4sql import data
 from asn4sql import wikisql_specific
 from asn4sql.utils import (seed_all, gpus, get_device, RollingAverageWindow,
@@ -83,13 +83,13 @@ def _main(argv):
 
     num_workers = flags.FLAGS.workers
     log.debug('initializing {} workers', num_workers)
-    with closing(SyncTrainer(model, num_workers)) as trainer:
-        trainer.zero_grad()
+    with closing(SharedGPU(model, num_workers)) as shared:
+        shared.zero_grad()
         log.debug('all {} remote workers initialized', num_workers)
-        _do_training(model, train, val, trainer, training_state)
+        _do_training(model, train, val, shared, training_state)
 
 
-def _do_training(model, train, val, trainer, training_state):
+def _do_training(model, train, val, shared, training_state):
     batch_size = flags.FLAGS.batch_size
 
     loss_window = RollingAverageWindow(len(train) // 10 // batch_size)
@@ -104,7 +104,7 @@ def _do_training(model, train, val, trainer, training_state):
         }
 
     model.train()
-    trainer.lr(training_state.lr)
+    shared.lr(training_state.lr)
     perm = np.arange(len(train))
 
     for epoch in range(1 + training_state.epoch, 1 + flags.FLAGS.max_epochs):
@@ -117,17 +117,17 @@ def _do_training(model, train, val, trainer, training_state):
         samples = (train[i] for i in perm)
         with tqdm(total=len(train), postfix=_tqdm_postfix()) as progbar:
             for exs in _chunkify(samples, batch_size):
-                loss, acc, gradnorm = trainer.train(exs)
+                loss, acc, gradnorm = shared.train(exs)
                 loss_window.update(loss)
                 acc_window.update(acc)
                 grad_window.update(gradnorm)
-                trainer.step()  # auto-zeros grad
+                shared.step()  # auto-zeros grad
                 progbar.update(len(exs))
                 progbar.set_postfix(**_tqdm_postfix())
 
         model.eval()
-        val_diagnostics = _diagnose(val, model)
-        train_diagnositcs = _diagnose(train, model, len(val))
+        val_diagnostics = _diagnose(val, shared)
+        train_diagnositcs = _diagnose(train, shared, len(val))
         val_diagnostics_str = _str_diagnostics('val', val_diagnostics)
         train_diagnositcs_str = _str_diagnostics('(sampled) train',
                                                  train_diagnositcs)
@@ -163,7 +163,7 @@ def _do_training(model, train, val, trainer, training_state):
             break
 
 
-def _diagnose(dataset, model, subsample=None):
+def _diagnose(dataset, shared, subsample=None):
     if subsample is None:
         subsample = range(len(dataset))
         num_items = len(dataset)
@@ -171,18 +171,19 @@ def _diagnose(dataset, model, subsample=None):
         subsample = np.random.choice(len(dataset), subsample, replace=False)
         num_items = len(subsample)
     sum_diagnostics = {}
-    with torch.no_grad():
-        for ex in (dataset[i] for i in subsample):
-            prepared_ex = model.prepare_example(ex)
-            diagnostics = model.diagnose(prepared_ex)
-            for k, (value, fmt) in diagnostics.items():
-                if k not in sum_diagnostics:
-                    sum_diagnostics[k] = (value.detach().cpu().numpy(), fmt)
-                else:
-                    sum_value, sum_fmt = sum_diagnostics[k]
-                    assert sum_fmt == fmt, (sum_fmt, fmt)
-                    sum_value += value.detach().cpu().numpy()
-                    sum_diagnostics[k] = (sum_value, fmt)
+    samples = (dataset[i] for i in subsample)
+    # can afford larger batch size for eval
+    batch_size = flags.FLAGS.batch_size * max(flags.FLAGS.workers, 1)
+    for exs in _chunkify(samples, batch_size):
+        diagnostics = shared.diagnose(exs)
+        for k, (value, fmt) in diagnostics.items():
+            if k not in sum_diagnostics:
+                sum_diagnostics[k] = (value, fmt)
+            else:
+                sum_value, sum_fmt = sum_diagnostics[k]
+                assert sum_fmt == fmt, (sum_fmt, fmt)
+                sum_value += value
+                sum_diagnostics[k] = (sum_value, fmt)
     avg_diagnostics = {
         k: (value / num_items, fmt)
         for k, (value, fmt) in sum_diagnostics.items()
