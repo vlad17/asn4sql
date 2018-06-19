@@ -48,6 +48,8 @@ flags.DEFINE_integer(
 # optimizer
 flags.DEFINE_integer('batch_size', 64, 'batch size')
 flags.DEFINE_float('learning_rate', 0.1, 'initial learning rate')
+flags.DEFINE_float('lr_decay_rate', 0.25, 'decay rate for learning rate, '
+                   'used when validation loss stops improving')
 
 
 def _main(argv):
@@ -145,8 +147,8 @@ def _do_training(model, train, val, shared, training_state):
             _save_checkpoint(best_file, model, training_state)
         else:
             training_state.patience -= 1
-            # lr_decay_rate = 1/4
-            # TODO: decay learning rate by 1/10
+            training_state.lr *= flags.FLAGS.lr_decay_rate
+            shared.lr(training_state.lr)
 
         early_stop = training_state.patience < 0
         if early_stop:
