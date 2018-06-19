@@ -148,7 +148,7 @@ def _do_training(model, train, val, trainer, training_state):
             pass
 
         if _check_period(epoch, flags.FLAGS.persist_every):
-            checkpoint_file = _checkpoint_file(epochfmt.format(epoch))
+            checkpoint_file = _checkpoint_file(epochfmt.format(epoch) + '.pth')
             log.debug('persisting model to {}', checkpoint_file)
             _save_checkpoint(checkpoint_file, model, training_state)
 
@@ -224,7 +224,7 @@ def _copy_best_checkpoint(checkpoint_file):
     best_dst = _checkpoint_file('best.pth')
     log.debug('copying best running model file from {} to {}', bestfile,
               best_dst)
-    os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
+    os.makedirs(os.path.dirname(best_dst), exist_ok=True)
     shutil.copyfile(bestfile, best_dst)
 
 
