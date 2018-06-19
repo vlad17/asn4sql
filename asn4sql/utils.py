@@ -110,13 +110,13 @@ def get_device():
     return torch.device('cpu')
 
 
-def intfmt(maxval):
+def intfmt(maxval, fill=' '):
     """
     returns the appropriate format string for integers that can go up to
     maximum value maxvalue, inclusive.
     """
     vallen = len(str(maxval))
-    return '{:' + str(vallen) + 'd}'
+    return '{:' + fill + str(vallen) + 'd}'
 
 
 def disable_contiguous_rnn_warning():
