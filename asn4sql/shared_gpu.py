@@ -37,6 +37,16 @@ class SharedGPU:
         if self._local:
             log.debug('using a within-process worker')
 
+    def set_mode(self, evaluation=False):
+        """set the mode to eval if evaluation, else to train"""
+        if self._local:
+            self._local.set_mode(evaluation)
+            return
+        for worker in self._workers:
+            worker.set_mode(evaluation)
+        for worker in self._workers:
+            worker.set_mode_finish(evaluation)
+
     def train(self, examples):
         """
         shard and perform fwd/bwd pass on a batch of examples, returning
@@ -121,6 +131,13 @@ class _Remote:
     def zero_grad(self):
         """zero the optimizer grad"""
         self.optimizer.zero_grad()
+
+    def set_mode(self, evaluation=False):
+        """set the model evaluation mode"""
+        if evaluation:
+            self.model.eval()
+        else:
+            self.model.train()
 
     def step(self):
         """Steps and zeros"""
@@ -247,6 +264,14 @@ class _Worker:
         """wait until gradient is zeroed"""
         self._pull('zero_grad')
 
+    def set_mode(self, evaluation):
+        """zero the gradient"""
+        self._push('set_mode', (evaluation, ))
+
+    def set_mode_finish(self):
+        """wait until gradient is zeroed"""
+        self._pull('set_mode')
+
 
 def _train(model, examples, batch_size):
     agg_loss = 0
@@ -259,9 +284,14 @@ def _train(model, examples, batch_size):
         loss.backward(loss_seed)
         agg_loss += loss.detach().cpu().numpy()
         agg_acc += acc.detach().cpu().numpy()
-    grad = torch.cat(tuple(p.grad.data.view(-1) for p in model.parameters()))
+    grad = tuple(
+        p.grad.data.view(-1) for p in model.parameters()
+        if p.grad is not None and p.grad.nelement() > 0)
+    grad = grad or [torch.Tensor()]
     # won't be exact grad norm but avg of split grad norm batch
+    grad = torch.cat(grad)
     gradnorm = torch.norm(grad).detach().cpu().numpy()
+
     agg_loss = agg_loss / batch_size
     agg_acc = agg_acc / batch_size
     return agg_loss, agg_acc, gradnorm
@@ -275,7 +305,7 @@ def _diagnose(model, examples):
         with torch.no_grad():
             ex_diagnostics = {
                 k: (v.cpu().numpy(), fmt)
-                for k, (v, fmt) in ex_diagnostics
+                for k, (v, fmt) in ex_diagnostics.items()
             }
         diagnostics.append(ex_diagnostics)
     return diagnostics

@@ -48,8 +48,9 @@ flags.DEFINE_integer(
 # optimizer
 flags.DEFINE_integer('batch_size', 64, 'batch size')
 flags.DEFINE_float('learning_rate', 0.1, 'initial learning rate')
-flags.DEFINE_float('lr_decay_rate', 0.25, 'decay rate for learning rate, '
-                   'used when validation loss stops improving')
+flags.DEFINE_float(
+    'lr_decay_rate', 0.25, 'decay rate for learning rate, '
+    'used when validation loss stops improving')
 
 
 def _main(argv):
@@ -178,14 +179,15 @@ def _diagnose(dataset, shared, subsample=None):
     batch_size = flags.FLAGS.batch_size * max(flags.FLAGS.workers, 1)
     for exs in _chunkify(samples, batch_size):
         diagnostics = shared.diagnose(exs)
-        for k, (value, fmt) in diagnostics.items():
-            if k not in sum_diagnostics:
-                sum_diagnostics[k] = (value, fmt)
-            else:
-                sum_value, sum_fmt = sum_diagnostics[k]
-                assert sum_fmt == fmt, (sum_fmt, fmt)
-                sum_value += value
-                sum_diagnostics[k] = (sum_value, fmt)
+        for ex in diagnostics:
+            for k, (value, fmt) in ex.items():
+                if k not in sum_diagnostics:
+                    sum_diagnostics[k] = (value, fmt)
+                else:
+                    sum_value, sum_fmt = sum_diagnostics[k]
+                    assert sum_fmt == fmt, (sum_fmt, fmt)
+                    sum_value += value
+                    sum_diagnostics[k] = (sum_value, fmt)
     avg_diagnostics = {
         k: (value / num_items, fmt)
         for k, (value, fmt) in sum_diagnostics.items()
