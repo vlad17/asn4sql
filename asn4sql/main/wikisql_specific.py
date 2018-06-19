@@ -31,23 +31,20 @@ flags.DEFINE_integer('seed', 1, 'random seed')
 flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 
 # training logistics
-# TODO: checkpointing (and checkpoint restores)
 # flags.DEFINE_string('restore_checkpoint', None, 'checkpoint to restore '
 #                     'training from')
 # flags.DEFINE_integer(
-#     'persist_every', 25,
+#     'persist_every', 10,
 #     'period of mini-batches between checkpoint persists (0 to disable)')
 flags.DEFINE_integer('evaluate_every', 5,
                      'period of epochs between evaluations (0 to disable)')
-flags.DEFINE_integer('max_epochs', 100, 'maximum number of epochs for training')
+flags.DEFINE_integer(
+    'max_epochs', 100, 'maximum number of epochs for training')
 flags.DEFINE_integer(
     'workers', 4, 'number of CPU workers for parallelizing '
     'training in a data-parallel manner (we only ever use '
     'at most one GPU, but python-heavy processing can be '
     'parallelized. Use a single process if set to 0.')
-# TODO lr decay on val stalls (3 stalls max)
-# TODO dropout, 1 layer agg predictor, copy coarse2fine
-# TODO
 
 # optimizer
 flags.DEFINE_integer('batch_size', 64, 'batch size')
@@ -128,11 +125,6 @@ def _do_training(model, train, val, trainer):
                 trainer.step()  # auto-zeros grad
                 progbar.update(len(exs))
                 progbar.set_postfix(**_tqdm_postfix())
-
-            # heierarichal attention -- bilinear form on two sequences
-            # then apply attention over the matrix
-            # compare to other attention forms (dong and lapata, no
-            # contextualization attention, just attnetion over lstm output)
 
         if _check_period(epoch, flags.FLAGS.evaluate_every):
             model.eval()

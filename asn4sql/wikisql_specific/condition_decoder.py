@@ -126,10 +126,6 @@ class ConditionDecoder(nn.Module):
         op_idx = self._optensor(op)
         op_e = self.op_embedding(op_idx)
         col_e = self._fetch_or_zero(sce_ce, col)
-        # TODO should summarize sqe_qe[span_l:span_r+1] with a bilstm
-        # span_l_e = self._fetch_or_zero(sqe_qe, span_l)
-        # span_r_e = self._fetch_or_zero(sqe_qe, span_r - 1)
-        # Also span_r sould get a bilstm summary of span_l
 
         decoder_input_11i = torch.cat([op_e, col_e]).view(1, 1, -1)
 
