@@ -138,19 +138,29 @@ def _do_training(model, train, val, trainer, training_state):
 
         cur_val_loss = val_diagnostics['loss (*total)'][0]
         if cur_val_loss < training_state.best_val_loss:
+            training_state.patience = training_state.initial_patience
             training_state.best_val_loss = cur_val_loss
             best_file = _checkpoint_file('best.pth')
             log.debug('updating best model into file {}', best_file)
             _save_checkpoint(best_file, model, training_state)
         else:
-            # TODO: early stopping with patience
+            training_state.patience -= 1
+            # lr_decay_rate = 1/4
             # TODO: decay learning rate by 1/10
-            pass
 
-        if _check_period(epoch, flags.FLAGS.persist_every):
+        early_stop = training_state.patience < 0
+        if early_stop:
+            log.debug(
+                'encountered {} drops in val loss in a row; '
+                'early stopping', training_state.initial_patience + 1)
+
+        if _check_period(epoch, flags.FLAGS.persist_every) or early_stop:
             checkpoint_file = _checkpoint_file(epochfmt.format(epoch) + '.pth')
             log.debug('persisting model to {}', checkpoint_file)
             _save_checkpoint(checkpoint_file, model, training_state)
+
+        if early_stop:
+            break
 
 
 def _diagnose(dataset, model, subsample=None):
@@ -251,6 +261,8 @@ class _TrainingState:
         self.epoch = 0
         self.lr = flags.FLAGS.learning_rate
         self.best_val_loss = np.inf
+        self.initial_patience = 2
+        self.patience = self.initial_patience
 
     def state_dict(self):
         """return all training state for algorithm"""
