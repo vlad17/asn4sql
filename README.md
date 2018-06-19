@@ -22,6 +22,8 @@ All scripts are available in `scripts/`, and should be run from the repo root in
 | `tests.sh` | runs tests |
 | `install-pytorch.sh` | infer python and cuda versions, use them to install pytorch |
 | `format.sh` | auto-format the entire `asn4sql` directory |
+| `where.sh` | finds the experiments whose params match the given ones on the command line |
+| `annotate.sh` | annotates experiment metadata (when it was run, etc.) |
 
 ## Example
 
