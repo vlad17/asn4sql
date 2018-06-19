@@ -32,8 +32,10 @@ files are automatically added to the directory:
   * flags.json - json version of invocation flags
   * flags.flags - absl version of invocation flags
   * log.txt - debug logs from training
+  * starttime.txt - start time, pretty printed
 """
 
+from datetime import datetime
 import inspect
 import subprocess
 import os
@@ -170,6 +172,7 @@ def init(logdir=None):
         _save_git_hash(os.path.join(logdir, 'githash.txt'))
         _save_invocation(os.path.join(logdir, 'invocation.txt'))
         _save_flags(os.path.join(logdir, 'flags.json'))
+        _save_time(os.path.join(logdir, 'starttime.txt'))
         flags.FLAGS.append_flags_into_file(os.path.join(logdir, 'flags.flags'))
 
 
@@ -253,6 +256,12 @@ def _save_invocation(filename):
     invocation = ' '.join(shlex.quote(s) for s in cmdargs)
     with open(filename, 'w') as f:
         print(invocation, file=f)
+
+def _save_time(filename):
+    now = datetime.now()
+    datestr = now.strftime('%a, %b %d, %Y, %X')
+    with open(filename, 'w') as f:
+        print(datestr, file=f)
 
 
 def _save_flags(filename):

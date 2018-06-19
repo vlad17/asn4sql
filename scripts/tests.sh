@@ -47,6 +47,7 @@ main() {
     cmds+=("test -f ./logs/_test/*/seed-1/githash.txt")
     cmds+=("test -f ./logs/_test/*/seed-1/invocation.txt")
     cmds+=("test -f ./logs/_test/*/seed-1/log.txt")
+    cmds+=("test -f ./logs/_test/*/seed-1/starttime.txt")
     cmds+=("test -f ./data/wikisql/processed-toy1.pth")
     cmds+=("rm -rf ./logs/_test2")
     cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 1 --max_epochs 1 --seed 3 --logroot ./logs/_test2 --workers 1 --batch_size 4")
