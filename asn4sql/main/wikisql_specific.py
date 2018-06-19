@@ -158,6 +158,7 @@ def _do_training(model, train, val, shared, training_state):
                 'early stopping', training_state.initial_patience + 1)
 
         if _check_period(epoch, flags.FLAGS.persist_every) or early_stop:
+            epochfmt = intfmt(flags.FLAGS.max_epochs, fill='0')
             checkpoint_file = _checkpoint_file(epochfmt.format(epoch) + '.pth')
             log.debug('persisting model to {}', checkpoint_file)
             _save_checkpoint(checkpoint_file, model, training_state)
