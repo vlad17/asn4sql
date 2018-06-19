@@ -38,8 +38,8 @@ flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 #     'period of mini-batches between checkpoint persists (0 to disable)')
 flags.DEFINE_integer('evaluate_every', 5,
                      'period of epochs between evaluations (0 to disable)')
-flags.DEFINE_integer(
-    'max_epochs', 100, 'maximum number of epochs for training')
+flags.DEFINE_integer('max_epochs', 100,
+                     'maximum number of epochs for training')
 flags.DEFINE_integer(
     'workers', 4, 'number of CPU workers for parallelizing '
     'training in a data-parallel manner (we only ever use '
