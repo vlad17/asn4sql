@@ -3,6 +3,8 @@ Defines the conditional decoder for WikiSQL; see
 WikiSQLSpecificModel for full docs.
 """
 
+import functools
+
 from absl import flags
 import torch
 from torch import nn
@@ -13,8 +15,8 @@ from .pointer import Pointer
 from ..data import wikisql
 from ..utils import get_device
 
-flags.DEFINE_integer('decoder_size', 512, 'hidden state size for the decoder')
-flags.DEFINE_integer('op_embedding_size', 32,
+flags.DEFINE_integer('decoder_size', 128, 'hidden state size for the decoder')
+flags.DEFINE_integer('op_embedding_size', 16,
                      'embedding size for conditional operators')
 
 
@@ -121,14 +123,9 @@ class ConditionDecoder(nn.Module):
             nwords = len(sqe_qe)
             return self._stop_logits(ncols, nwords), hidden_state
 
-        op_idx = torch.ones([], dtype=torch.long, device=get_device())
-        op_idx *= max(op, 0)
+        op_idx = self._optensor(op)
         op_e = self.op_embedding(op_idx)
         col_e = self._fetch_or_zero(sce_ce, col)
-        # TODO should summarize sqe_qe[span_l:span_r+1] with a bilstm
-        # span_l_e = self._fetch_or_zero(sqe_qe, span_l)
-        # span_r_e = self._fetch_or_zero(sqe_qe, span_r - 1)
-        # Also span_r sould get a bilstm summary of span_l
 
         decoder_input_11i = torch.cat([op_e, col_e]).view(1, 1, -1)
 
@@ -160,6 +157,7 @@ class ConditionDecoder(nn.Module):
     def _zeros(*shape):
         return torch.zeros(shape, device=get_device())
 
+    @functools.lru_cache(maxsize=None)
     def _stop_logits(self, ncols, nwords):
         stop_2 = self._zeros(2)
         stop_2[1] = 1
@@ -171,5 +169,12 @@ class ConditionDecoder(nn.Module):
                 span_r_logits_q)
 
     @staticmethod
+    @functools.lru_cache(maxsize=1)
     def _neg100():
         return -100 * torch.ones([1], dtype=torch.float32, device=get_device())
+
+    @staticmethod
+    @functools.lru_cache(maxsize=None)
+    def _optensor(op):
+        x = torch.ones([], dtype=torch.long, device=get_device())
+        return x * max(op, 0)

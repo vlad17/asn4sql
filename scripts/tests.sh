@@ -48,7 +48,14 @@ main() {
     cmds+=("test -f ./logs/_test/*/seed-1/invocation.txt")
     cmds+=("test -f ./logs/_test/*/seed-1/log.txt")
     cmds+=("test -f ./data/wikisql/processed-toy1.pth")
-    cmds+=("python asn4sql/main/wikisql_specific.py --toy --evaluate_every 1 --max_epochs 1")
+    cmds+=("rm -rf ./logs/_test2")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 1 --max_epochs 1 --seed 3 --logroot ./logs/_test2 --workers 1 --batch_size 4")
+    cmds+=("test -f ./logs/_test2/*/seed-3/untrained_model.pth")
+    cmds+=("test -f ./logs/_test2/*/seed-3/checkpoints/best.pth")
+    cmds+=("test -f ./logs/_test2/*/seed-3/checkpoints/1.pth")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --max_epochs 1 --seed 3 --logroot ./logs/_test3 --persist_every 0 --workers 0 --batch_size 4 --restore_checkpoint ./logs/_test2/*/seed-3/checkpoints/1.pth")
+    cmds+=("test -f ./logs/_test3/*/seed-3/checkpoints/best.pth")
+    cmds+=("test ! -f ./logs/_test3/*/seed-3/checkpoints/1.pth")
 
     for cmd in "${cmds[@]}"; do
         box "${cmd}"

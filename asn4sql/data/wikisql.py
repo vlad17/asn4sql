@@ -88,8 +88,6 @@ def _wikisql_data_readers(db):
     parsers = {}
     validators = {}
 
-    # TODO need parallel metadata list to hold original, after, and table_id
-
     # src is a sequence of StanfordCoreNLP-tokenized lowercased words for the
     # natural language question being asked in the dataset
     def _parse_src(query_json):

@@ -6,17 +6,20 @@ Assumes that the processed-toy(0|1).pth dataset exists in
 {dataroot}/wikisql/ already.
 """
 
+from contextlib import closing
 import os
+import shutil
+import itertools
 
 from absl import app
 from absl import flags
 import torch
-from torch import optim
 import torch.utils
 from tqdm import tqdm
 import numpy as np
 
 from asn4sql import log
+from asn4sql.parallel_train import SyncTrainer
 from asn4sql import data
 from asn4sql import wikisql_specific
 from asn4sql.utils import (seed_all, gpus, get_device, RollingAverageWindow,
@@ -27,19 +30,24 @@ flags.DEFINE_integer('seed', 1, 'random seed')
 flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 
 # training logistics
-# TODO: batching for batch size > !
-# TODO: checkpointing (and checkpoint restores)
-# flags.DEFINE_string('restore_checkpoint', None, 'checkpoint to restore '
-#                     'training from')
-# flags.DEFINE_integer(
-#     'persist_every', 25,
-#     'period of mini-batches between checkpoint persists (0 to disable)')
-flags.DEFINE_integer('evaluate_every', 1,
-                     'period of epochs between evaluations (0 to disable)')
-flags.DEFINE_integer('max_epochs', 10, 'maximum number of epochs for training')
+flags.DEFINE_string(
+    'restore_checkpoint', None,
+    'restore training from this checkpoint; the current best '
+    'from the restored run must be in the same directory ')
+flags.DEFINE_integer(
+    'persist_every', 10,
+    'period of epochs between checkpoint persists (0 to disable)')
+flags.DEFINE_integer('max_epochs', 100,
+                     'maximum number of epochs for training')
+flags.DEFINE_integer(
+    'workers', 4, 'number of CPU workers for parallelizing '
+    'training in a data-parallel manner (we only ever use '
+    'at most one GPU, but python-heavy processing can be '
+    'parallelized. Use a single process if set to 0.')
 
 # optimizer
-flags.DEFINE_float('learning_rate', 0.1, 'learning rate')
+flags.DEFINE_integer('batch_size', 64, 'batch size')
+flags.DEFINE_float('learning_rate', 0.1, 'initial learning rate')
 
 
 def _main(argv):
@@ -62,72 +70,96 @@ def _main(argv):
     num_parameters = int(sum(p.numel() for p in model.parameters()))
     log.debug('number of parameters in model {}', num_parameters)
 
-    _do_training(model, train, val)
-
-
-def _do_training(model, train, val):
     device = get_device()
     torch.save(
         model.to(torch.device('cpu')),
         os.path.join(log.logging_directory(), 'untrained_model.pth'))
     model = model.to(device)
+    training_state = _TrainingState()
+    if flags.FLAGS.restore_checkpoint:
+        _copy_best_checkpoint(flags.FLAGS.restore_checkpoint)
+        _load_checkpoint(flags.FLAGS.restore_checkpoint, model, training_state)
+    model = model.share_memory()
 
-    optimizer = optim.SGD(model.parameters(), lr=flags.FLAGS.learning_rate)
-    # training_state = _TrainingState()
-    # if flags.FLAGS.restore_checkpoint:
-    #     log.debug('restoring model from {}', flags.FLAGS.restore_checkpoint)
-    #     _load_checkpoint(flags.FLAGS.restore_checkpoint, model, optimizer,
-    #                      training_state)
-    # TODO(NOW) multiple losses?
-    loss_window = RollingAverageWindow(len(train))
+    num_workers = flags.FLAGS.workers
+    log.debug('initializing {} workers', num_workers)
+    with closing(SyncTrainer(model, num_workers)) as trainer:
+        trainer.zero_grad()
+        log.debug('all {} remote workers initialized', num_workers)
+        _do_training(model, train, val, trainer, training_state)
+
+
+def _do_training(model, train, val, trainer, training_state):
+    batch_size = flags.FLAGS.batch_size
+
+    loss_window = RollingAverageWindow(len(train) // 10 // batch_size)
+    acc_window = RollingAverageWindow(len(train) // 10 // batch_size)
+    grad_window = RollingAverageWindow(len(train) // 10 // batch_size)
+
+    def _tqdm_postfix():
+        return {
+            'loss': '{:06.3f}'.format(loss_window.value()),
+            'acc': '{:05.1%}'.format(acc_window.value()),
+            'gradnorm': '{:08.2e}'.format(grad_window.value())
+        }
 
     model.train()
-
+    trainer.lr(training_state.lr)
     perm = np.arange(len(train))
-    for epoch in range(1, 1 + flags.FLAGS.max_epochs):
+
+    for epoch in range(1 + training_state.epoch, 1 + flags.FLAGS.max_epochs):
         epochfmt = intfmt(flags.FLAGS.max_epochs)
+        training_state.epoch = epoch
         log.debug('begin epoch ' + epochfmt, epoch)
         # one sample at a time greatly simplifies pytorch seq2seq!
         np.random.shuffle(perm)
+
         samples = (train[i] for i in perm)
-        for ex in tqdm(samples, total=len(train)):
-            # TODO batch size > 1 by not zeroing, see lbs/training.py
-            optimizer.zero_grad()
-            prepared_ex = model.prepare_example(ex)
-            loss = model.forward(prepared_ex)
-            loss_window.update(loss.detach().cpu().numpy())
-            loss.backward()
-            optimizer.step()
+        with tqdm(total=len(train), postfix=_tqdm_postfix()) as progbar:
+            for exs in _chunkify(samples, batch_size):
+                loss, acc, gradnorm = trainer.train(exs)
+                loss_window.update(loss)
+                acc_window.update(acc)
+                grad_window.update(gradnorm)
+                trainer.step()  # auto-zeros grad
+                progbar.update(len(exs))
+                progbar.set_postfix(**_tqdm_postfix())
 
-        log.debug('end epoch ' + epochfmt + ' rolling loss {:8.4g}', epoch,
-                  loss_window.value())
-
-        if _check_period(epoch, flags.FLAGS.evaluate_every):
-            model.eval()
-            val_diagnostics = _diagnose(val, model)
-            train_diagnositcs = _diagnose(train, model, len(val))
-            val_diagnostics = _str_diagnostics('val', val_diagnostics)
-            train_diagnositcs = _str_diagnostics('(sampled) train',
+        model.eval()
+        val_diagnostics = _diagnose(val, model)
+        train_diagnositcs = _diagnose(train, model, len(val))
+        val_diagnostics_str = _str_diagnostics('val', val_diagnostics)
+        train_diagnositcs_str = _str_diagnostics('(sampled) train',
                                                  train_diagnositcs)
-            log.debug('epoch ' + epochfmt + ' of ' + epochfmt + '\n{}\n{}',
-                      epoch, flags.FLAGS.max_epochs, val_diagnostics,
-                      train_diagnositcs)
-            model.train()
+        log.debug('epoch ' + epochfmt + ' of ' + epochfmt + '\n{}\n{}', epoch,
+                  flags.FLAGS.max_epochs, val_diagnostics_str,
+                  train_diagnositcs_str)
+        model.train()
 
-        # if _check_period(training_state.batch_idx, flags.FLAGS.persist_every):
-        #     fmt = '{:0' + str(len(str(flags.FLAGS.max_batches))) + 'd}.pth'
-        #     checkpoint_file = os.path.join(
-        #         log.logging_directory(), 'checkpoints',
-        #         fmt.format(training_state.batch_idx))
-        #     log.debug('persisting model to {}', checkpoint_file)
-        #     _save_checkpoint(checkpoint_file, model, optimizer, training_state)
+        cur_val_loss = val_diagnostics['loss (*total)'][0]
+        if cur_val_loss < training_state.best_val_loss:
+            training_state.best_val_loss = cur_val_loss
+            best_file = _checkpoint_file('best.pth')
+            log.debug('updating best model into file {}', best_file)
+            _save_checkpoint(best_file, model, training_state)
+        else:
+            # TODO: early stopping with patience
+            # TODO: decay learning rate by 1/10
+            pass
+
+        if _check_period(epoch, flags.FLAGS.persist_every):
+            checkpoint_file = _checkpoint_file(epochfmt.format(epoch) + '.pth')
+            log.debug('persisting model to {}', checkpoint_file)
+            _save_checkpoint(checkpoint_file, model, training_state)
 
 
 def _diagnose(dataset, model, subsample=None):
     if subsample is None:
         subsample = range(len(dataset))
+        num_items = len(dataset)
     else:
         subsample = np.random.choice(len(dataset), subsample, replace=False)
+        num_items = len(subsample)
     sum_diagnostics = {}
     with torch.no_grad():
         for ex in (dataset[i] for i in subsample):
@@ -142,7 +174,7 @@ def _diagnose(dataset, model, subsample=None):
                     sum_value += value.detach().cpu().numpy()
                     sum_diagnostics[k] = (sum_value, fmt)
     avg_diagnostics = {
-        k: (value / len(dataset), fmt)
+        k: (value / num_items, fmt)
         for k, (value, fmt) in sum_diagnostics.items()
     }
     return avg_diagnostics
@@ -161,40 +193,73 @@ def _str_diagnostics(diagnostics_name, diagnostics):
         for name, value, valuefmt in values)
 
 
+def _chunkify(iterable, n):
+    # https://stackoverflow.com/questions/8991506
+    it = iter(iterable)
+    while True:
+        chunk = tuple(itertools.islice(it, n))
+        if not chunk:
+            return
+        yield chunk
+
+
 def _check_period(idx, period):
     if period == 0:
         return False
     return idx == 1 or idx == flags.FLAGS.max_epochs or idx % period == 0
 
 
-# def _load_checkpoint(checkpoint_file, model, optimizer, training_state):
-#     state_dict = torch.load(checkpoint_file)
-#     model.load_state_dict(state_dict['model'])
-#     optimizer.load_state_dict(state_dict['optimizer'])
-#     training_state.load_state_dict(state_dict['training_state'])
+def _checkpoint_file(basename):
+    checkpoint_file = os.path.join(log.logging_directory(), 'checkpoints',
+                                   basename)
+    return checkpoint_file
 
-# def _save_checkpoint(checkpoint_file, model, optimizer, training_state):
-#     state_dict = {
-#         'model': model.state_dict(),
-#         'optimizer': optimizer.state_dict(),
-#         'training_state': training_state.state_dict()
-#     }
 
-#     os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
-#     with open(checkpoint_file, 'wb') as f:
-#         torch.save(state_dict, f)
+def _copy_best_checkpoint(checkpoint_file):
+    bestfile = os.path.join(os.path.dirname(checkpoint_file), 'best.pth')
+    if not os.path.isfile(bestfile):
+        raise ValueError(
+            'was expecting checkpoint file {} to have a sibling '
+            'file best.pth for the running best model'.format(checkpoint_file))
+    best_dst = _checkpoint_file('best.pth')
+    log.debug('copying best running model file from {} to {}', bestfile,
+              best_dst)
+    os.makedirs(os.path.dirname(best_dst), exist_ok=True)
+    shutil.copyfile(bestfile, best_dst)
 
-# class _TrainingState:
-#     def __init__(self):
-#         self.batch_idx = 0
 
-#     def state_dict(self):
-#         """return all training state for algorithm"""
-#         return {'batch_idx': self.batch_idx}
+def _load_checkpoint(checkpoint_file, model, training_state):
+    log.debug('restoring model from {}', flags.FLAGS.restore_checkpoint)
+    state_dict = torch.load(checkpoint_file)
+    model.load_state_dict(state_dict['model'])
+    training_state.load_state_dict(state_dict['training_state'])
 
-#     def load_state_dict(self, d):
-#         """re-load training state from dictionary"""
-#         self.batch_idx = d['batch_idx']
+
+def _save_checkpoint(checkpoint_file, model, training_state):
+    state_dict = {
+        'model': model.state_dict(),
+        'training_state': training_state.state_dict()
+    }
+
+    os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
+    with open(checkpoint_file, 'wb') as f:
+        torch.save(state_dict, f)
+
+
+class _TrainingState:
+    def __init__(self):
+        self.epoch = 0
+        self.lr = flags.FLAGS.learning_rate
+        self.best_val_loss = np.inf
+
+    def state_dict(self):
+        """return all training state for algorithm"""
+        return self.__dict__
+
+    def load_state_dict(self, d):
+        """re-load training state from dictionary"""
+        self.__dict__.update(d)
+
 
 if __name__ == '__main__':
     app.run(_main)
