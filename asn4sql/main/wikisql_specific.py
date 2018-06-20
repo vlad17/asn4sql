@@ -47,6 +47,9 @@ flags.DEFINE_integer(
 
 # optimizer
 flags.DEFINE_integer('batch_size', 64, 'batch size')
+flags.DEFINE_integer('patience', 3, 'number of consecutive epochs of '
+                     'a lack of improvement in validation loss to tolerate '
+                     'before early stopping (on the next unimproving epoch)')
 flags.DEFINE_float('learning_rate', 0.1, 'initial learning rate')
 flags.DEFINE_float(
     'lr_decay_rate', 0.25, 'decay rate for learning rate, '
@@ -149,7 +152,12 @@ def _do_training(model, train, val, shared, training_state):
         else:
             training_state.patience -= 1
             training_state.lr *= flags.FLAGS.lr_decay_rate
+            log.debug('val loss not improving; dropping learning rate')
             shared.lr(training_state.lr)
+
+        log.debug('lr {} patience {} best loss so far {}',
+                  training_state.lr, training_state.patience,
+                  training_state.best_val_loss)
 
         early_stop = training_state.patience < 0
         if early_stop:
@@ -267,7 +275,7 @@ class _TrainingState:
         self.epoch = 0
         self.lr = flags.FLAGS.learning_rate
         self.best_val_loss = np.inf
-        self.initial_patience = 2
+        self.initial_patience = flags.FLAGS.patience
         self.patience = self.initial_patience
 
     def state_dict(self):
@@ -277,7 +285,6 @@ class _TrainingState:
     def load_state_dict(self, d):
         """re-load training state from dictionary"""
         self.__dict__.update(d)
-
 
 if __name__ == '__main__':
     app.run(_main)
