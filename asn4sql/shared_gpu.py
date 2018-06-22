@@ -45,7 +45,7 @@ class SharedGPU:
         for worker in self._workers:
             worker.set_mode(evaluation)
         for worker in self._workers:
-            worker.set_mode_finish(evaluation)
+            worker.set_mode_finish()
 
     def train(self, examples):
         """

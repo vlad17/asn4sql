@@ -296,8 +296,8 @@ class WikiSQLSpecificModel(nn.Module):
             span_r = span_r_logits_wq1.argmax(1).detach().cpu().numpy()
             agg = aggregation_logits_a.argmax().detach().cpu().numpy()
             sel = selection_logits_c.argmax().detach().cpu().numpy()
-            prediction = wikisql.Prediction(
-                ops, cols, span_l, span_r, agg, sel)
+            prediction = wikisql.Prediction(ops, cols, span_l, span_r, agg,
+                                            sel)
         else:
             prediction = None
 

@@ -373,6 +373,7 @@ def wikisql(toy):
 
     return train, val, test
 
+
 class Prediction:
     """
     Minimal container of data necessary to make a prediction about what a
@@ -388,7 +389,6 @@ class Prediction:
         self.sel = sel
         # TODO validation ops cols, spans all same length
 
-
     def as_query_example(self, ex):
         """return a runnable instance of this prediction"""
         # this is just to avoid bad list slices later; a null slice
@@ -400,7 +400,7 @@ class Prediction:
         ex.sel = self.sel
         ex.cond_op = self.ops
         ex.cond_span_l = self.span_ls
-        ex.cond_span_r = self.span_rs
+        ex.cond_span_r = span_rs
         return ex
 
     def condition_logical_match(self, ex):
@@ -413,16 +413,11 @@ class Prediction:
 
         # the condition can be fully represented as a 4x(num conds)
         # integer matrix
-        true_cond = np.array([
-            ex.cond_col,
-            ex.cond_op,
-            ex.cond_span_l,
-            ex.cond_span_r], dtype=int)
-        pred_cond = np.array([
-            self.cols,
-            self.ops,
-            self.span_ls,
-            self.span_rs], dtype=int)
+        true_cond = np.array(
+            [ex.cond_col, ex.cond_op, ex.cond_span_l, ex.cond_span_r],
+            dtype=int)
+        pred_cond = np.array(
+            [self.cols, self.ops, self.span_ls, self.span_rs], dtype=int)
 
         idx = np.lexsort(true_cond)
         true_cond = true_cond[:, idx]
@@ -430,6 +425,7 @@ class Prediction:
         pred_cond = pred_cond[:, idx]
 
         return np.array_equal(true_cond, pred_cond)
+
 
 class TableDataset(torchtext.data.Dataset):
     """WikiSQL dataset in torchtext format; pickleable."""
