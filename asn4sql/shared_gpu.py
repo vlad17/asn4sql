@@ -303,10 +303,16 @@ def _diagnose(model, examples):
         prepared_ex = model.prepare_example(ex)
         ex_diagnostics = model.diagnose(prepared_ex)
         with torch.no_grad():
+            # TODO get rid of the built-in fmting in diagnose
+            # instead just have a fmt rule in train loss -> 8.4g
+            # and acc -> 8.2%
+            prediction = ex_diagnostics['prediction']
+            del ex_diagnostics['prediction']
             ex_diagnostics = {
                 k: (v.cpu().detach().numpy(), fmt)
                 for k, (v, fmt) in ex_diagnostics.items()
             }
+            ex_diagnostics['prediction'] = prediction
         diagnostics.append(ex_diagnostics)
     return diagnostics
 
