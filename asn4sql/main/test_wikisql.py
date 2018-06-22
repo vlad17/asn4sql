@@ -15,7 +15,8 @@ from tqdm import tqdm
 
 from asn4sql import data
 from asn4sql.shared_gpu import SharedGPU
-from asn4sql.utils import seed_all, get_device, gpus
+from asn4sql.utils import (seed_all, get_device, gpus, chunkify,
+                           disable_source_code_warning)
 
 
 flags.DEFINE_integer('seed', 1, 'random seed')
@@ -35,13 +36,13 @@ flags.DEFINE_integer(
     'at most one GPU, but python-heavy processing can be '
     'parallelized. Use a single process if set to 0.')
 
-def _main(argv):
+def _main(_):
     seed_all(flags.FLAGS.seed)
 
     if flags.FLAGS.toy:
         print('using toy data subset')
 
-    print('found gpus {}', gpus())
+    print('found gpus {}'.format(gpus()))
     dataset_file = os.path.join(
         flags.FLAGS.dataroot, 'wikisql',
         'processed-toy{}.pth'.format(1 if flags.FLAGS.toy else 0))
@@ -53,6 +54,7 @@ def _main(argv):
         os.path.dirname(os.path.dirname(model_file)), 'untrained_model.pth')
 
     print('loading initial model from {}'.format(initial_model))
+    disable_source_code_warning()
     model = torch.load(initial_model)
     model = model.to(get_device())
 
@@ -62,25 +64,25 @@ def _main(argv):
     model = model.share_memory()
 
     num_workers = flags.FLAGS.workers
-    print('initializing {} workers', num_workers)
+    print('initializing {} workers'.format(num_workers))
     with closing(SharedGPU(model, num_workers)) as shared:
         shared.set_mode(evaluation=True)
-        print('all {} remote workers initialized', num_workers)
+        print('all {} remote workers initialized'.format(num_workers))
         _do_evaluation('test', test, shared)
 
 def _do_evaluation(dataset_name, dataset, shared):
     batch_size = flags.FLAGS.batch_size * max(flags.FLAGS.workers, 1)
     sum_diagnostics = {
-        'agg match': 0
-        'sel match': 0
-        'cond exact match': 0
-        'cond logical match': 0
-        'exact match': 0
-        'logical match': 0
-        'execution match': 0
+        'agg match': 0,
+        'sel match': 0,
+        'cond exact match': 0,
+        'cond logical match': 0,
+        'exact match': 0,
+        'logical match': 0,
+        'execution match': 0,
     }
-    predictions = []
-    for exs in _chunkify(tqdm(dataset), batch_size):
+    x=True
+    for exs in chunkify(tqdm(dataset), batch_size):
         diagnostics = shared.diagnose(exs)
         for true_ex, result_ex in zip(exs, diagnostics):
             agg_match = result_ex['acc (agg)'][0]
@@ -104,7 +106,7 @@ def _do_evaluation(dataset_name, dataset, shared):
             pred_result = dataset.db_engine.execute_query(pred_ex)
             sum_diagnostics['execution match'] += true_result == pred_result
     avg_diagnostics = {
-        k: value / num_items
+        k: value / len(dataset)
         for k, value in sum_diagnostics.items()
     }
 

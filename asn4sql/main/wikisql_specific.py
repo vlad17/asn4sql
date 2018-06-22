@@ -9,7 +9,6 @@ Assumes that the processed-toy(0|1).pth dataset exists in
 from contextlib import closing
 import os
 import shutil
-import itertools
 
 from absl import app
 from absl import flags
@@ -23,7 +22,7 @@ from asn4sql.shared_gpu import SharedGPU
 from asn4sql import data
 from asn4sql import wikisql_specific
 from asn4sql.utils import (seed_all, gpus, get_device, RollingAverageWindow,
-                           intfmt)
+                           intfmt, chunkify)
 
 # dataset and initialization config
 flags.DEFINE_integer('seed', 1, 'random seed')
@@ -48,12 +47,12 @@ flags.DEFINE_integer(
 # optimizer
 flags.DEFINE_integer('batch_size', 64, 'batch size')
 flags.DEFINE_integer(
-    'patience', 3, 'number of consecutive epochs of '
+    'patience', 2, 'number of consecutive epochs of '
     'a lack of improvement in validation loss to tolerate '
     'before early stopping (on the next unimproving epoch)')
 flags.DEFINE_float('learning_rate', 0.1, 'initial learning rate')
 flags.DEFINE_float(
-    'lr_decay_rate', 0.25, 'decay rate for learning rate, '
+    'lr_decay_rate', 0.5, 'decay rate for learning rate, '
     'used when validation loss stops improving')
 
 
@@ -123,7 +122,7 @@ def _do_training(model, train, val, shared, training_state):
 
         samples = (train[i] for i in perm)
         with tqdm(total=len(train), postfix=_tqdm_postfix()) as progbar:
-            for exs in _chunkify(samples, batch_size):
+            for exs in chunkify(samples, batch_size):
                 loss, acc, gradnorm = shared.train(exs)
                 loss_window.update(loss)
                 acc_window.update(acc)
@@ -186,7 +185,7 @@ def _diagnose(dataset, shared, subsample=None):
     samples = (dataset[i] for i in subsample)
     # can afford larger batch size for eval
     batch_size = flags.FLAGS.batch_size * max(flags.FLAGS.workers, 1)
-    for exs in _chunkify(samples, batch_size):
+    for exs in chunkify(samples, batch_size):
         diagnostics = shared.diagnose(exs)
         for ex in diagnostics:
             del ex['prediction']
@@ -216,17 +215,6 @@ def _str_diagnostics(diagnostics_name, diagnostics):
     return preamble + newline_and_indent + newline_and_indent.join(
         (namefmt + ' ' + valuefmt).format(name, value)
         for name, value, valuefmt in values)
-
-
-def _chunkify(iterable, n):
-    # https://stackoverflow.com/questions/8991506
-    it = iter(iterable)
-    while True:
-        chunk = tuple(itertools.islice(it, n))
-        if not chunk:
-            return
-        yield chunk
-
 
 def _check_period(idx, period):
     if period == 0:

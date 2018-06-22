@@ -244,6 +244,8 @@ class WikiSQLSpecificModel(nn.Module):
         nll = F.cross_entropy(input_ml, target_m)
         acc = torch.prod(input_ml.argmax(dim=1) == target_o).type(
             torch.float32)
+        if len(input_il) != len(target_m):
+            acc = torch.zeros([]).to(get_device())
         return nll, acc
 
     @staticmethod
@@ -290,10 +292,11 @@ class WikiSQLSpecificModel(nn.Module):
         sel_acc = sel_acc.type(torch.float32)
 
         if with_prediction:
-            ops = op_logits_wo.argmax(1).detach().cpu().numpy()
-            cols = col_logits_wc.argmax(1).detach().cpu().numpy()
-            span_l = span_l_logits_wq.argmax(1).detach().cpu().numpy()
-            span_r = span_r_logits_wq1.argmax(1).detach().cpu().numpy()
+            stop = stop_w2.argmax(1).argmax(0) # first stop occurence
+            ops = op_logits_wo.argmax(1).detach().cpu().numpy()[:stop]
+            cols = col_logits_wc.argmax(1).detach().cpu().numpy()[:stop]
+            span_l = span_l_logits_wq.argmax(1).detach().cpu().numpy()[:stop]
+            span_r = span_r_logits_wq1.argmax(1).detach().cpu().numpy()[:stop]
             agg = aggregation_logits_a.argmax().detach().cpu().numpy()
             sel = selection_logits_c.argmax().detach().cpu().numpy()
             prediction = wikisql.Prediction(ops, cols, span_l, span_r, agg,

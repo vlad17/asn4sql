@@ -69,7 +69,11 @@ class DBEngine:
                     val = float(parse_decimal(val))
                 except NumberFormatError:
                     _NUM_RE = re.compile(r'[-+]?\d*\.\d+|\d+')
-                    val = float(_NUM_RE.findall(val)[0])
+                    vals =_NUM_RE.findall(val)
+                    if vals:
+                        val = float(vals[0])
+                    else:
+                        val = -999999999
             where_clause.append('col{} {} :param{}'.format(
                 col_idx, data.wikisql.CONDITIONAL[op], param))
             where_map['param{}'.format(param)] = ('col{}'.format(col_idx), val)
@@ -100,7 +104,7 @@ class DBEngine:
         for k, (col, v) in param_map.items():
             if schema[col] == 'text':
                 v = "'{}'".format(v)
-            query_str = query_str.replace(':' + k, v)
+            query_str = query_str.replace(':' + k, str(v))
         cols = ' '.join(ex.tbl).split(data.wikisql.SPLIT_WORD)
         if cols and not cols[-1]:  # remove trailing split
             cols.pop()

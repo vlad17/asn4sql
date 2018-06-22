@@ -382,6 +382,7 @@ class Prediction:
 
     def __init__(self, ops, cols, span_ls, span_rs, agg, sel):
         self.ops = ops
+        self.num_conds = len(ops)
         self.cols = cols
         self.span_ls = span_ls
         self.span_rs = span_rs
@@ -408,8 +409,11 @@ class Prediction:
         returns whether the conditions logically match with the given
         example.
         """
-        if len(ex.cond_op) != len(self.ops):
+        if len(ex.cond_op) != self.num_conds:
             return False
+
+        if not self.num_conds:
+            return True
 
         # the condition can be fully represented as a 4x(num conds)
         # integer matrix
