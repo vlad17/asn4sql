@@ -223,7 +223,7 @@ class WikiSQLSpecificModel(nn.Module):
         Compute the model loss on the prepared example as well as whether
         the example was perfectly guessed.
         """
-        results = self.diagnose(prepared_ex)
+        results = self.diagnose(prepared_ex, with_prediction=False)
         loss, _ = results['loss (*total)']
         acc, _ = results['acc (*total)']
         return loss, acc
@@ -252,7 +252,7 @@ class WikiSQLSpecificModel(nn.Module):
         targ = torch.unsqueeze(targ, dim=0)
         return F.cross_entropy(pred, targ)
 
-    def diagnose(self, prepared_ex):
+    def diagnose(self, prepared_ex, with_prediction=True):
         """
         diagnostic info - returns a dictionary keyed by diagnostic name
         with the value being a tuple of the numerical value of the
@@ -289,6 +289,18 @@ class WikiSQLSpecificModel(nn.Module):
         sel_acc = selection_logits_c.argmax() == prepared_ex['sel']
         sel_acc = sel_acc.type(torch.float32)
 
+        if with_prediction:
+            ops = op_logits_wo.argmax(1).detach().cpu().numpy()
+            cols = col_logits_wc.argmax(1).detach().cpu().numpy()
+            span_l = span_l_logits_wq.argmax(1).detach().cpu().numpy()
+            span_r = span_r_logits_wq1.argmax(1).detach().cpu().numpy()
+            agg = aggregation_logits_a.argmax().detach().cpu().numpy()
+            sel = selection_logits_c.argmax().detach().cpu().numpy()
+            prediction = wikisql.Prediction(
+                ops, cols, span_l, span_r, agg, sel)
+        else:
+            prediction = None
+
         return {
             'loss (*total)': (cond_loss + agg_loss + sel_loss, '{:8.4g}'),
             'loss (cond)': (cond_loss, '{:8.4g}'),
@@ -298,4 +310,5 @@ class WikiSQLSpecificModel(nn.Module):
             'acc (cond)': (cond_acc, '{:8.2%}'),
             'acc (agg)': (agg_acc, '{:8.2%}'),
             'acc (sel)': (sel_acc, '{:8.2%}'),
+            'prediction': prediction
         }

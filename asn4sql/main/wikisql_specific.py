@@ -110,7 +110,7 @@ def _do_training(model, train, val, shared, training_state):
             'gradnorm': '{:08.2e}'.format(grad_window.value())
         }
 
-    model.train()
+    shared.set_mode(evaluation=False)
     shared.lr(training_state.lr)
     perm = np.arange(len(train))
 
@@ -132,7 +132,7 @@ def _do_training(model, train, val, shared, training_state):
                 progbar.update(len(exs))
                 progbar.set_postfix(**_tqdm_postfix())
 
-        model.eval()
+        shared.set_mode(evaluation=True)
         val_diagnostics = _diagnose(val, shared)
         train_diagnositcs = _diagnose(train, shared, len(val))
         val_diagnostics_str = _str_diagnostics('val', val_diagnostics)
@@ -141,7 +141,7 @@ def _do_training(model, train, val, shared, training_state):
         log.debug('epoch ' + epochfmt + ' of ' + epochfmt + '\n{}\n{}', epoch,
                   flags.FLAGS.max_epochs, val_diagnostics_str,
                   train_diagnositcs_str)
-        model.train()
+        shared.set_mode(evaluation=True)
 
         cur_val_loss = val_diagnostics['loss (*total)'][0]
         if cur_val_loss < training_state.best_val_loss:
@@ -189,6 +189,7 @@ def _diagnose(dataset, shared, subsample=None):
     for exs in _chunkify(samples, batch_size):
         diagnostics = shared.diagnose(exs)
         for ex in diagnostics:
+            del ex['prediction']
             for k, (value, fmt) in ex.items():
                 if k not in sum_diagnostics:
                     sum_diagnostics[k] = (value, fmt)
