@@ -127,6 +127,8 @@ class ConditionDecoder(nn.Module):
         op_e = self.op_embedding(op_idx)
         col_e = self._fetch_or_zero(sce_ce, col)
 
+        # TODO add attention based on decoder hidden state over both
+        # sequences.
         decoder_input_11i = torch.cat([op_e, col_e]).view(1, 1, -1)
 
         decoder_output_11e, hidden_state = self.decoder_lstm(
@@ -135,7 +137,6 @@ class ConditionDecoder(nn.Module):
         context = decoder_output_11e.view(-1)
         stop_2 = self.stop_logits(context)
 
-        context = torch.cat([context, stop_2])
         op_logits_o = self.op_logits(context)
 
         context = torch.cat([context, op_logits_o])
@@ -145,10 +146,13 @@ class ConditionDecoder(nn.Module):
         context = torch.cat([context, col_attn_e])
         span_l_logits_q = self.span_l_ptr_logits(sqe_qe, context)
 
-        src_attn_e = sqe_qe.t().mv(F.softmax(span_l_logits_q, dim=0))
-        context = torch.cat([context, src_attn_e])
-        span_r_logits_q = self.span_r_ptr_logits(sqe_qe, context)
-        span_r_logits_q1 = torch.cat([self._neg100(), span_r_logits_q])
+        with torch.no_grad():
+            # r = number entries after l
+            l = span_l_logits_q.argmax().detach().cpu().numpy()
+            sqe_re = sqe_qe[l:]
+            left_pad = [self._neg100()] * (l + 1)
+        span_r_logits_r = self.span_r_ptr_logits(sqe_re, context)
+        span_r_logits_q1 = torch.cat(left_pad + [span_r_logits_r])
 
         return (stop_2, op_logits_o, col_logits_c, span_l_logits_q,
                 span_r_logits_q1), hidden_state

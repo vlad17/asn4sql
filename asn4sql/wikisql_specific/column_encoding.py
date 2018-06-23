@@ -11,12 +11,9 @@ from torch import nn
 from ..data import wikisql
 
 flags.DEFINE_integer(
-    'sequence_column_embedding_size', 64,
+    'sequence_column_embedding_size', 256,
     'hidden state size for the per-column embedding; should '
     'be even')
-flags.DEFINE_integer('column_embedding_size', 64,
-                     'hidden state size for the whole-table column embedding')
-
 
 class ColumnEmbedding(nn.Module):
     """
@@ -35,20 +32,13 @@ class ColumnEmbedding(nn.Module):
       embedding for that specific column, resulting in a new sequence
       equal in length to the number of columns for the current table.
 
-    The sequence embedding size is in the sequence_size member,
-    whereas final_size describes the embedding size for the final
-    whole-table summary.
+    The sequence embedding size is in the sequence_size member.
     """
 
-    def __init__(self, tbl_field):
+    def __init__(self, nl_embedding, tbl_field):
         super().__init__()
         self.split_idx = tbl_field.vocab.stoi[wikisql.SPLIT_WORD]
-        vecs = tbl_field.vocab.vectors
-        self.embedding = nn.Embedding(*vecs.size())
-        self.embedding.weight.data.copy_(vecs)
-        # don't update the pretrained embedding, since this won't
-        # adjust training OOV values
-        self.embedding.weight.requires_grad = False
+        self.embedding = nl_embedding
 
         self.sequence_size = flags.FLAGS.sequence_column_embedding_size
 
@@ -65,8 +55,7 @@ class ColumnEmbedding(nn.Module):
         seq_s should be the SPLIT_WORD numericalized LongTensor of the
         table header as prepared by torchtext.
 
-        returns an embedding for each column and then a whole embedding over
-        ever column
+        returns an embedding for each column.
         """
         # s = flat sequence length with split index specifying columns
         # c = num columns
@@ -84,5 +73,4 @@ class ColumnEmbedding(nn.Module):
             # description is logically distinct.
             _, (final_hidden, _) = self.lstm(seq_se[begin:end].unsqueeze(1))
             cols_ce.append(final_hidden.view(-1))
-        cols_ce = torch.stack(cols_ce)
         return cols_ce

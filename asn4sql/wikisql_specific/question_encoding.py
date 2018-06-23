@@ -55,11 +55,6 @@ class QuestionEmbedding(nn.Module):
             self.sequence_size // 2,
             num_layers=1,
             bidirectional=True)
-        self.summary_lstm = nn.LSTM(
-            self.sequence_size,
-            self.final_size,
-            num_layers=1,
-            bidirectional=False)
 
     def forward(self, src_seq_s, ent_seq_s):
         """
@@ -72,8 +67,7 @@ class QuestionEmbedding(nn.Module):
         ent_seq_se = self.ent_embedding(ent_seq_s)
 
         question_seq_se = torch.cat([src_seq_se, ent_seq_se], dim=1)
-        output_seq_s1e, _ = self.lstm(question_seq_se.unsqueeze(1))
+        output_seq_s1e, (hidden_21e, _) = self.lstm(
+            question_seq_se.unsqueeze(1))
         output_seq_se = output_seq_s1e.squeeze(1)
-
-        _, (final_hidden, _) = self.summary_lstm(output_seq_s1e)
-        return output_seq_se, final_hidden.view(-1)
+        return output_seq_se, hidden_21e.view(-1)
