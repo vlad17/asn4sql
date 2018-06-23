@@ -73,7 +73,8 @@ def _main(argv):
     log.debug('building model')
     model = wikisql_specific.WikiSQLSpecificModel(train.fields)
     log.debug('built model:\n{}', model)
-    num_parameters = int(sum(p.numel() for p in model.parameters()))
+    num_parameters = int(sum(p.numel() for p in model.parameters()
+                             if p.requires_grad))
     log.debug('number of parameters in model {}', num_parameters)
 
     device = get_device()

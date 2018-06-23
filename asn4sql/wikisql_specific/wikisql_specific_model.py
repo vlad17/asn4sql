@@ -64,6 +64,7 @@ is teacher-forced during training.
 import sys
 
 from absl import flags
+import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -99,20 +100,21 @@ class WikiSQLSpecificModel(nn.Module):
         super().__init__()
         self.fields = fields
 
-        natural_language_embedding = NLEmbedding(src_field)
+        natural_language_embedding = NLEmbedding(fields['src'])
         ent_field = fields['ent']
+        tbl_field = fields['tbl']
         self.question_encoding_for_agg = QuestionEncoding(
             natural_language_embedding, ent_field)
         self.column_encoding_for_agg = ColumnEncoding(
-            natural_language_embedding)
+            natural_language_embedding, tbl_field)
         self.question_encoding_for_sel = QuestionEncoding(
             natural_language_embedding, ent_field)
         self.column_encoding_for_sel = ColumnEncoding(
-            natural_language_embedding)
+            natural_language_embedding, tbl_field)
         self.question_encoding_for_cond = QuestionEncoding(
             natural_language_embedding, ent_field)
         self.column_encoding_for_cond = ColumnEncoding(
-            natural_language_embedding)
+            natural_language_embedding, tbl_field)
 
         self.agg_attention = Attention(
             self.column_encoding_for_agg.sequence_size,
@@ -127,13 +129,14 @@ class WikiSQLSpecificModel(nn.Module):
         self.aggregation_mlp = MLP(joint_embedding_size,
                                    [flags.FLAGS.aggregation_hidden] * 2,
                                    len(wikisql.AGGREGATION))
-        self.selection_ptrnet = Pointer(self.column_embedding.sequence_size,
-                                        self.question_embedding.final_size)
+        self.selection_ptrnet = Pointer(
+            self.column_encoding_for_sel.sequence_size,
+            self.question_encoding_for_sel.final_size)
         self.decoder_initialization_mlp = MLP(joint_embedding_size, [],
                                               flags.FLAGS.decoder_size)
         self.condition_decoder = ConditionDecoder(
-            self.column_embedding.sequence_size,
-            self.question_embedding.sequence_size)
+            self.column_encoding_for_cond.sequence_size,
+            self.question_encoding_for_cond.final_size)
 
     def prepare_example(self, ex):
         """
@@ -309,8 +312,6 @@ class WikiSQLSpecificModel(nn.Module):
         nll = F.cross_entropy(input_ml, target_m)
         acc = torch.prod(input_ml.argmax(dim=1) == target_o).type(
             torch.float32)
-        if len(input_il) != len(target_m):
-            acc = torch.zeros([]).to(get_device())
         return nll, acc
 
     @staticmethod
@@ -357,7 +358,8 @@ class WikiSQLSpecificModel(nn.Module):
         sel_acc = sel_acc.type(torch.float32)
 
         if with_prediction:
-            stop = stop_w2.argmax(1).argmax(0) # first stop occurence
+            stop = stop_w2.argmax(1).detach().cpu().numpy()
+            stop = stop.argmax() if np.any(stop) else None
             ops = op_logits_wo.argmax(1).detach().cpu().numpy()[:stop]
             cols = col_logits_wc.argmax(1).detach().cpu().numpy()[:stop]
             span_l = span_l_logits_wq.argmax(1).detach().cpu().numpy()[:stop]

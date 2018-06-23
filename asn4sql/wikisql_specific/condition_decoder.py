@@ -58,13 +58,11 @@ class ConditionDecoder(nn.Module):
 
         input_size = flags.FLAGS.decoder_size
         self.stop_logits = MLP(input_size, [], 2)
-        input_size += self.stop_logits.output_size
         self.op_logits = MLP(input_size, [], len(wikisql.CONDITIONAL))
         input_size += self.op_logits.output_size
         self.col_ptr_logits = Pointer(col_seq_size, input_size)
         input_size += col_seq_size  # add an attention context
         self.span_l_ptr_logits = Pointer(src_seq_size, input_size)
-        input_size += src_seq_size  # same as above
         self.span_r_ptr_logits = Pointer(src_seq_size, input_size)
 
     @staticmethod
@@ -139,9 +137,10 @@ class ConditionDecoder(nn.Module):
 
         op_logits_o = self.op_logits(context)
 
-        context = torch.cat([context, op_logits_o])
+        context = torch.cat([context, op_logits_o.detach()])
         col_logits_c = self.col_ptr_logits(sce_ce, context)
 
+        # TODO make actual attn
         col_attn_e = sce_ce.t().mv(F.softmax(col_logits_c, dim=0))
         context = torch.cat([context, col_attn_e])
         span_l_logits_q = self.span_l_ptr_logits(sqe_qe, context)
@@ -149,8 +148,8 @@ class ConditionDecoder(nn.Module):
         with torch.no_grad():
             # r = number entries after l
             l = span_l_logits_q.argmax().detach().cpu().numpy()
-            sqe_re = sqe_qe[l:]
             left_pad = [self._neg100()] * (l + 1)
+        sqe_re = sqe_qe[l:]
         span_r_logits_r = self.span_r_ptr_logits(sqe_re, context)
         span_r_logits_q1 = torch.cat(left_pad + [span_r_logits_r])
 

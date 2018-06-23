@@ -126,7 +126,9 @@ class _Remote:
 
     def __init__(self, model):
         self.model = model
-        self.optimizer = optim.SGD(model.parameters(), lr=0.1)
+        self.optimizer = optim.SGD(
+            [p for p in model.parameters() if p.requires_grad],
+            lr=0.1)
 
     def zero_grad(self):
         """zero the optimizer grad"""

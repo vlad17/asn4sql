@@ -1,5 +1,5 @@
 """
-Defines the column embedding for WikiSQL; see
+Defines the column encoding for WikiSQL; see
 WikiSQLSpecificModel for full docs.
 """
 
@@ -11,17 +11,17 @@ from torch import nn
 from ..data import wikisql
 
 flags.DEFINE_integer(
-    'sequence_column_embedding_size', 256,
-    'hidden state size for the per-column embedding; should '
+    'sequence_column_encoding_size', 256,
+    'hidden state size for the per-column encoding; should '
     'be even')
 
-class ColumnEmbedding(nn.Module):
+class ColumnEncoding(nn.Module):
     """
-    The column embedding accepts a description of the table header field
+    The column encoding accepts a description of the table header field
     from the WikiSQL torchtext dataset, which is assumed to already have
     built out a vocabulary, with a pretrained base already loaded.
 
-    After the learnable embedding is initialized, this module defines
+    After the learnable encoding is initialized, this module defines
     weights and networks for the following operations:
 
     * Upon receiving a wikisql.SPLIT_WORD-delimited sequence of indices
@@ -29,10 +29,10 @@ class ColumnEmbedding(nn.Module):
       this module splits by the split token and then applies a
       bidirectional LSTM to each column description individually.
     * The per-column final bidirectional LSTM state is used as an
-      embedding for that specific column, resulting in a new sequence
+      encoding for that specific column, resulting in a new sequence
       equal in length to the number of columns for the current table.
 
-    The sequence embedding size is in the sequence_size member.
+    The sequence encoding size is in the sequence_size member.
     """
 
     def __init__(self, nl_embedding, tbl_field):
@@ -40,7 +40,7 @@ class ColumnEmbedding(nn.Module):
         self.split_idx = tbl_field.vocab.stoi[wikisql.SPLIT_WORD]
         self.embedding = nl_embedding
 
-        self.sequence_size = flags.FLAGS.sequence_column_embedding_size
+        self.sequence_size = flags.FLAGS.sequence_column_encoding_size
 
         assert self.sequence_size % 2 == 0, self.sequence_size
 
@@ -55,7 +55,7 @@ class ColumnEmbedding(nn.Module):
         seq_s should be the SPLIT_WORD numericalized LongTensor of the
         table header as prepared by torchtext.
 
-        returns an embedding for each column.
+        returns an encoding for each column.
         """
         # s = flat sequence length with split index specifying columns
         # c = num columns
@@ -73,4 +73,4 @@ class ColumnEmbedding(nn.Module):
             # description is logically distinct.
             _, (final_hidden, _) = self.lstm(seq_se[begin:end].unsqueeze(1))
             cols_ce.append(final_hidden.view(-1))
-        return cols_ce
+        return torch.stack(cols_ce)

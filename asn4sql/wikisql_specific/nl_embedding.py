@@ -2,7 +2,10 @@
 A static natural language embedding.
 """
 
+import torch
 from torch import nn
+
+from ..utils import get_device
 
 class NLEmbedding(nn.Module):
     """
@@ -31,9 +34,9 @@ class NLEmbedding(nn.Module):
     def __init__(self, src_field):
         super().__init__()
         vecs = src_field.vocab.vectors
-        self.embedding = nn.Embedding(*vecs.size())
-        self.embedding.weight.data.copy_(vecs)
-        self.embedding.weight.requires_grad = False
+        self.embedding = nn.Embedding.from_pretrained(vecs, freeze=True)
+        self.embedding_dim = vecs.size()[1]
 
-    def forward(self, x):
-        return self.embedding(x)
+    def __call__(self, x):
+        with torch.no_grad():
+            return self.embedding(x)
