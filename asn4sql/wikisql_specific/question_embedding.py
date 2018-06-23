@@ -27,8 +27,6 @@ class QuestionEmbedding(nn.Module):
     It concatenates the inputs entrywise.
 
     Then a bidirectional LSTM provides a per-token embedding.
-    A unidirectional LSTM then does a summary sweep to recover a summary
-    of the entire question context.
 
     Requires a pre-generated src embedding as input and the torchtext
     field for the part-of-speech embedding, which is learned from scratch.

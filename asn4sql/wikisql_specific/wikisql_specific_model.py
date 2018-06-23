@@ -158,6 +158,39 @@ class WikiSQLSpecificModel(nn.Module):
         # o = cardinality of binary comparison operators
         # w = _MAX_COND_LENGTH
 
+        natural_language_embedding = NLEmbedding(src_field)
+        # bilstms
+        self.question_encoding_for_agg = QuestionEncoding(
+            natural_language_embedding, ent_field)
+        self.column_encoding_for_agg = ColumnEncoding(
+            natural_language_embedding)
+        self.question_encoding_for_sel = QuestionEncoding(
+            natural_language_embedding, ent_field)
+        self.column_encoding_for_sel = ColumnEncoding(
+            natural_language_embedding)
+        ##
+        _, final_question_encoding_for_agg_e = self.question_encoding_for_agg(
+            prepared_ex['src'], prepared_ex['ent'])
+        _, final_column_encoding_for_agg_e = self.column_encoding_for_agg(
+            prepared_ex['tbl'])
+        _, final_question_encoding_for_sel_e = self.question_encoding_for_sel(
+            prepared_ex['src'], prepared_ex['ent'])
+        column_encoding_for_sel_ce, _ = self.column_encoding_for_sel(
+            prepared_ex['tbl'])
+        joint_encoding_for_agg_e = torch.cat([
+            final_question_encoding_for_agg_e,
+            final_column_encoding_for_agg_e], dim=0)
+        aggregation_logits_a = self.aggregation_mlp(joint_encoding_for_agg_e)
+        selection_logits_c = self.selection_ptrnet(
+            column_encoding_for_sel_ce, final_question_encoding_for_sel_e)
+
+
+
+        # Fixed embedding for src and tbl
+
+        # Attention: shouldn't we be using outputs? TODO look up attention
+        # K/V possibly question encoding -> attention -> agg
+        # K/V possibly Attention is all you need
         sqe_qe, qe_e = self.question_embedding(prepared_ex['src'],
                                                prepared_ex['ent'])
         sce_ce, ce_e = self.column_embedding(prepared_ex['tbl'])

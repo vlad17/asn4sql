@@ -134,13 +134,13 @@ def _do_training(model, train, val, shared, training_state):
         shared.set_mode(evaluation=True)
         val_diagnostics = _diagnose(val, shared)
         train_diagnositcs = _diagnose(train, shared, len(val))
+        shared.set_mode(evaluation=False)
         val_diagnostics_str = _str_diagnostics('val', val_diagnostics)
         train_diagnositcs_str = _str_diagnostics('(sampled) train',
                                                  train_diagnositcs)
         log.debug('epoch ' + epochfmt + ' of ' + epochfmt + '\n{}\n{}', epoch,
                   flags.FLAGS.max_epochs, val_diagnostics_str,
                   train_diagnositcs_str)
-        shared.set_mode(evaluation=True)
 
         cur_val_loss = val_diagnostics['loss (*total)'][0]
         if cur_val_loss < training_state.best_val_loss:

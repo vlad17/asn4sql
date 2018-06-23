@@ -34,8 +34,6 @@ class ColumnEmbedding(nn.Module):
     * The per-column final bidirectional LSTM state is used as an
       embedding for that specific column, resulting in a new sequence
       equal in length to the number of columns for the current table.
-    * Finally, a unidirectional LSTM computes a cross-column embedding
-      for the whole table.
 
     The sequence embedding size is in the sequence_size member,
     whereas final_size describes the embedding size for the final
@@ -48,9 +46,11 @@ class ColumnEmbedding(nn.Module):
         vecs = tbl_field.vocab.vectors
         self.embedding = nn.Embedding(*vecs.size())
         self.embedding.weight.data.copy_(vecs)
+        # don't update the pretrained embedding, since this won't
+        # adjust training OOV values
+        self.embedding.weight.requires_grad = False
 
         self.sequence_size = flags.FLAGS.sequence_column_embedding_size
-        self.final_size = flags.FLAGS.column_embedding_size
 
         assert self.sequence_size % 2 == 0, self.sequence_size
 
@@ -59,11 +59,6 @@ class ColumnEmbedding(nn.Module):
             self.sequence_size // 2,
             num_layers=1,
             bidirectional=True)
-        self.summary_lstm = nn.LSTM(
-            self.sequence_size,
-            self.final_size,
-            num_layers=1,
-            bidirectional=False)
 
     def forward(self, seq_s):
         """
@@ -90,5 +85,4 @@ class ColumnEmbedding(nn.Module):
             _, (final_hidden, _) = self.lstm(seq_se[begin:end].unsqueeze(1))
             cols_ce.append(final_hidden.view(-1))
         cols_ce = torch.stack(cols_ce)
-        _, (final_hidden, _) = self.summary_lstm(cols_ce.unsqueeze(1))
-        return cols_ce, final_hidden.view(-1)
+        return cols_ce
