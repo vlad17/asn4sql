@@ -229,7 +229,7 @@ def _wikisql_data_readers(db):
         return [op_idx for _, op_idx, _ in query_json['query']['conds']]
 
     field_cond_op = torchtext.data.Field(
-        tokenize=_tokenize, pad_token=-1, use_vocab=False)
+        tokenize=_tokenize, pad_token=-1, use_vocab=False, batch_first=True)
 
     def _validate_cond_op(_query_json, ex):
         for op_idx in ex.cond_op:
@@ -389,19 +389,18 @@ class Prediction:
         self.agg = agg
         self.sel = sel
         # TODO validation ops cols, spans all same length
+        # TODO more validation...
+        # span_rs = [max(l, r) for l, r in zip(self.span_ls, self.span_rs)]
 
     def as_query_example(self, ex):
         """return a runnable instance of this prediction"""
-        # this is just to avoid bad list slices later; a null slice
-        # will still be an incorrect guess
-        span_rs = [max(l, r) for l, r in zip(self.span_ls, self.span_rs)]
 
         ex = copy.copy(ex)
         ex.cond_col = self.cols
         ex.sel = self.sel
         ex.cond_op = self.ops
         ex.cond_span_l = self.span_ls
-        ex.cond_span_r = span_rs
+        ex.cond_span_r = self.span_rs
         return ex
 
     def condition_logical_match(self, ex):
@@ -415,7 +414,7 @@ class Prediction:
         if not self.num_conds:
             return True
 
-        # the condition can be fully represented as a 4x(num conds)
+        # the condition can be fully represented as a 4-by-(num conds)
         # integer matrix
         true_cond = np.array(
             [ex.cond_col, ex.cond_op, ex.cond_span_l, ex.cond_span_r],

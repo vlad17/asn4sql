@@ -368,17 +368,21 @@ class WikiSQLSpecificModel(nn.Module):
             sel = selection_logits_c.argmax().detach().cpu().numpy()
             prediction = wikisql.Prediction(ops, cols, span_l, span_r, agg,
                                             sel)
+            prediction.stop = list(stop_w2.argmax(1).detach().cpu().numpy())
+            prediction.stop_true = list(true_stop.detach().cpu().numpy())
         else:
             prediction = None
 
         return {
             'loss (*total)': (cond_loss + agg_loss + sel_loss, '{:8.4g}'),
-            'loss (cond)': (cond_loss, '{:8.4g}'),
-            'loss (agg)': (agg_loss, '{:8.4g}'),
-            'loss (sel)': (sel_loss, '{:8.4g}'),
             'acc (*total)': (cond_acc * agg_acc * sel_acc, '{:8.2%}'),
             'acc (cond)': (cond_acc, '{:8.2%}'),
             'acc (agg)': (agg_acc, '{:8.2%}'),
             'acc (sel)': (sel_acc, '{:8.2%}'),
+            'acc (cond: op)': (op_acc, '{:8.2%}'),
+            'acc (cond: col)': (col_acc, '{:8.2%}'),
+            'acc (cond: span_l)': (span_l_acc, '{:8.2%}'),
+            'acc (cond: span_r)': (span_r_acc, '{:8.2%}'),
+            'acc (cond: stop)': (stop_acc, '{:8.2%}'),
             'prediction': prediction
         }

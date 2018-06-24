@@ -81,7 +81,7 @@ def _do_evaluation(dataset_name, dataset, shared):
         'logical match': 0,
         'execution match': 0,
     }
-    x=True
+
     for exs in chunkify(tqdm(dataset), batch_size):
         diagnostics = shared.diagnose(exs)
         for true_ex, result_ex in zip(exs, diagnostics):
@@ -104,6 +104,7 @@ def _do_evaluation(dataset_name, dataset, shared):
             pred_ex = prediction.as_query_example(true_ex)
             true_result = dataset.db_engine.execute_query(true_ex)
             pred_result = dataset.db_engine.execute_query(pred_ex)
+
             sum_diagnostics['execution match'] += true_result == pred_result
     avg_diagnostics = {
         k: value / len(dataset)
