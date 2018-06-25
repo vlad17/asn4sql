@@ -16,7 +16,7 @@ from tqdm import tqdm
 from asn4sql import data
 from asn4sql.shared_gpu import SharedGPU
 from asn4sql.utils import (seed_all, get_device, gpus, chunkify,
-                           disable_source_code_warning)
+                           disable_source_code_warning, OnlineSampler)
 
 flags.DEFINE_integer('seed', 1, 'random seed')
 flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
@@ -85,6 +85,8 @@ def _do_evaluation(dataset_name, dataset, shared):
         'execution match': 0,
     }
 
+    mistakes = OnlineSampler(5)
+
     for exs in chunkify(tqdm(dataset), batch_size):
         diagnostics = shared.diagnose(exs)
         for true_ex, result_ex in zip(exs, diagnostics):
@@ -102,13 +104,17 @@ def _do_evaluation(dataset_name, dataset, shared):
             sum_diagnostics['logical match'] += logical_match
 
             sum_diagnostics['cond exact match'] += result_ex['acc (cond)'][0]
-            sum_diagnostics['exact match'] += result_ex['acc (*total)'][0]
+            exact_match = result_ex['acc (*total)'][0]
+            sum_diagnostics['exact match'] += exact_match
 
             pred_ex = prediction.as_query_example(true_ex)
             true_result = dataset.db_engine.execute_query(true_ex)
             pred_result = dataset.db_engine.execute_query(pred_ex)
 
             sum_diagnostics['execution match'] += true_result == pred_result
+
+            if not exact_match:
+                mistakes.update((true_ex, pred_ex))
     avg_diagnostics = {
         k: value / len(dataset)
         for k, value in sum_diagnostics.items()
@@ -119,6 +125,11 @@ def _do_evaluation(dataset_name, dataset, shared):
     fmt = '    {:<' + str(maxlen) + '} {:8.2%}'
     for k, v in sorted(avg_diagnostics.items()):
         print(fmt.format(k, v))
+
+    print('    sampled mistakes')
+    for true, pred in mistakes.sample:
+        print(' ' * 8 + 'true ' + dataset.db_engine.interpolated_query(true))
+        print(' ' * 8 + 'pred ' + dataset.db_engine.interpolated_query(pred))
 
 
 if __name__ == '__main__':

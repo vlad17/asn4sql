@@ -146,3 +146,56 @@ def chunkify(iterable, n):
         if not chunk:
             return
         yield chunk
+
+class OnlineSampler:
+    """
+    Online sampling algorithm. Given an arbitrary stream of data, this online
+    sampler maintains a set of a pre-determined size k that is a simple random
+    sample, without replacement, from all observed data in the stream so far.
+
+    In other words, if this sampler has seen n > k data points so far then
+    its sample member is a uniformly selected set of k data points among
+    those seen.
+
+    Note that observing sample repeatedly does NOT give iid samples between
+    updates. Depends on random seed.
+    """
+    def __init__(self, k):
+        self.k = k
+        self.n = 0
+        self.sample = []
+
+    def update(self, example):
+        """
+        Observe a datapoint from the incoming stream and possibly include it
+        in the sampled set.
+        """
+        self.n += 1
+
+        if len(self.sample) < self.k:
+            self.sample.append(example)
+            return
+
+        # We wish to show by induction that the sample list will always be a
+        # uniform k-sample without replacement of the n items seen so far
+        # through all update calls. When n == k in the base case the unique
+        # set of all observed points is vacuously uniformly randomly selected.
+        # Now assume the inductive hypothesis holds for n > k.
+        # The current set of k samples is a uniform selection without
+        # replacement from the n previously observed data points.
+        # Now we observe the next example e.
+        #
+        # Let S be a k-sized set uniformly selected without replacement from
+        # our n + 1 points.
+        #
+        # P{e in S} = Binomial(n, k-1) / Binomial(n, k) = k / (n+1)
+        #
+        # Then if we include e with the above probability the distribution of S
+        # remains uniform (there's a conditioning argument here that I'm too
+        # lazy to make).
+        #
+        # Note we incremented n already at the beginning of this method.
+
+        if random.random() < self.k / self.n:
+            i = random.randrange(self.k)
+            self.sample[i] = example
