@@ -47,13 +47,14 @@ flags.DEFINE_integer(
 # optimizer
 flags.DEFINE_integer('batch_size', 64, 'batch size')
 flags.DEFINE_integer(
-    'patience', 2, 'number of consecutive epochs of '
+    'patience', 3, 'number of consecutive epochs of '
     'a lack of improvement in validation loss to tolerate '
-    'before early stopping (on the next unimproving epoch)')
+    'before reducing the LR (on next unimproving epoch)')
 flags.DEFINE_float('learning_rate', 0.1, 'initial learning rate')
 flags.DEFINE_float(
     'lr_decay_rate', 0.5, 'decay rate for learning rate, '
     'used when validation loss stops improving')
+flags.DEFINE_float('min_lr', 1e-5, 'stop training when lr gets this low')
 
 
 def _main(argv):
@@ -152,18 +153,24 @@ def _do_training(model, train, val, shared, training_state):
             _save_checkpoint(best_file, model, training_state)
         else:
             training_state.patience -= 1
-            training_state.lr *= flags.FLAGS.lr_decay_rate
-            log.debug('val loss not improving; dropping learning rate')
+            log.debug('val loss not improving; dropping patience')
             shared.lr(training_state.lr)
 
-        log.debug('lr {} patience {} best loss so far {}', training_state.lr,
-                  training_state.patience, training_state.best_val_loss)
+        if training_state.patience == 0:
+            log.debug('out of patience, dropping lr')
+            training_state.lr *= flags.FLAGS.lr_decay_rate
+            training_state.patience = training_state.initial_patience
 
-        early_stop = training_state.patience < 0
+        log.debug('lr {} patience {} best val loss so far {}',
+                  training_state.lr,
+                  training_state.patience,
+                  training_state.best_val_loss)
+
+        early_stop = training_state.lr < flags.FLAGS.min_lr
         if early_stop:
             log.debug(
-                'encountered {} drops in val loss in a row; '
-                'early stopping', training_state.initial_patience + 1)
+                'lr dropped to {} < min tolerable lr {}, early stopping'
+                training_state.lr, flags.FLAGS.min_lr)
 
         if _check_period(epoch, flags.FLAGS.persist_every) or early_stop:
             epochfmt = intfmt(flags.FLAGS.max_epochs, fill='0')
