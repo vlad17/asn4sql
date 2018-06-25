@@ -147,6 +147,7 @@ def chunkify(iterable, n):
             return
         yield chunk
 
+
 class OnlineSampler:
     """
     Online sampling algorithm. Given an arbitrary stream of data, this online
@@ -160,6 +161,7 @@ class OnlineSampler:
     Note that observing sample repeatedly does NOT give iid samples between
     updates. Depends on random seed.
     """
+
     def __init__(self, k):
         self.k = k
         self.n = 0
