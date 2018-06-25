@@ -128,6 +128,8 @@ def _do_evaluation(dataset_name, dataset, shared):
 
     print('    sampled mistakes')
     for true, pred in mistakes.sample:
+        print()
+        print(' ' * 8 + 'src  ' + dataset.question(true))
         print(' ' * 8 + 'true ' + dataset.db_engine.interpolated_query(true))
         print(' ' * 8 + 'pred ' + dataset.db_engine.interpolated_query(pred))
 
