@@ -101,5 +101,6 @@ def _validate_data(train, val, test):
     for i in random.sample(unknown, 10):
         print(' ' * 4 + i)
 
+
 if __name__ == '__main__':
     app.run(_main)
