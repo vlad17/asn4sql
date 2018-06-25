@@ -18,23 +18,25 @@ from asn4sql.shared_gpu import SharedGPU
 from asn4sql.utils import (seed_all, get_device, gpus, chunkify,
                            disable_source_code_warning)
 
-
 flags.DEFINE_integer('seed', 1, 'random seed')
 flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 
-flags.DEFINE_string('model', None, 'the checkpoint file which should contain '
-                    "a dictionary with a 'model' key. We assume that the "
-                    'parent directory of the model file contains a persisted '
-                    'pytorch module called untrained_model.pth which can be '
-                    'updated with the model parameters')
+flags.DEFINE_string(
+    'model', None, 'the checkpoint file which should contain '
+    "a dictionary with a 'model' key. We assume that the "
+    'parent directory of the model file contains a persisted '
+    'pytorch module called untrained_model.pth which can be '
+    'updated with the model parameters')
 flags.mark_flag_as_required('model')
-flags.DEFINE_integer('batch_size', 512, 'batch size for evaluation. This is '
-                     'the batch size used on each of the individual workers.')
+flags.DEFINE_integer(
+    'batch_size', 512, 'batch size for evaluation. This is '
+    'the batch size used on each of the individual workers.')
 flags.DEFINE_integer(
     'workers', 4, 'number of CPU workers for parallelizing '
     'training in a data-parallel manner (we only ever use '
     'at most one GPU, but python-heavy processing can be '
     'parallelized. Use a single process if set to 0.')
+
 
 def _main(_):
     seed_all(flags.FLAGS.seed)
@@ -69,6 +71,7 @@ def _main(_):
         shared.set_mode(evaluation=True)
         print('all {} remote workers initialized'.format(num_workers))
         _do_evaluation('test', test, shared)
+
 
 def _do_evaluation(dataset_name, dataset, shared):
     batch_size = flags.FLAGS.batch_size * max(flags.FLAGS.workers, 1)
@@ -116,6 +119,7 @@ def _do_evaluation(dataset_name, dataset, shared):
     fmt = '    {:<' + str(maxlen) + '} {:8.2%}'
     for k, v in sorted(avg_diagnostics.items()):
         print(fmt.format(k, v))
+
 
 if __name__ == '__main__':
     app.run(_main)

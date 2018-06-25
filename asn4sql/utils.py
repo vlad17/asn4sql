@@ -128,9 +128,11 @@ def disable_contiguous_rnn_warning():
     msg = 'RNN module weights are not part of single contiguous chunk'
     warnings.filterwarnings("ignore", msg, UserWarning)
 
+
 def disable_source_code_warning():
     """ignore warning about out-of-date models"""
     warnings.simplefilter('ignore', torch.serialization.SourceChangeWarning)
+
 
 def chunkify(iterable, n):
     """

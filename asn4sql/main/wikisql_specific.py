@@ -74,8 +74,8 @@ def _main(argv):
     log.debug('building model')
     model = wikisql_specific.WikiSQLSpecificModel(train.fields)
     log.debug('built model:\n{}', model)
-    num_parameters = int(sum(p.numel() for p in model.parameters()
-                             if p.requires_grad))
+    num_parameters = int(
+        sum(p.numel() for p in model.parameters() if p.requires_grad))
     log.debug('number of parameters in model {}', num_parameters)
 
     device = get_device()
@@ -162,15 +162,13 @@ def _do_training(model, train, val, shared, training_state):
             training_state.patience = training_state.initial_patience
 
         log.debug('lr {} patience {} best val loss so far {}',
-                  training_state.lr,
-                  training_state.patience,
+                  training_state.lr, training_state.patience,
                   training_state.best_val_loss)
 
         early_stop = training_state.lr < flags.FLAGS.min_lr
         if early_stop:
-            log.debug(
-                'lr dropped to {} < min tolerable lr {}, early stopping'
-                training_state.lr, flags.FLAGS.min_lr)
+            log.debug('lr dropped to {} < min tolerable lr {}, early stopping',
+                      training_state.lr, flags.FLAGS.min_lr)
 
         if _check_period(epoch, flags.FLAGS.persist_every) or early_stop:
             epochfmt = intfmt(flags.FLAGS.max_epochs, fill='0')
@@ -223,6 +221,7 @@ def _str_diagnostics(diagnostics_name, diagnostics):
     return preamble + newline_and_indent + newline_and_indent.join(
         (namefmt + ' ' + valuefmt).format(name, value)
         for name, value, valuefmt in values)
+
 
 def _check_period(idx, period):
     if period == 0:

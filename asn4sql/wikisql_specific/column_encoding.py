@@ -15,6 +15,7 @@ flags.DEFINE_integer(
     'hidden state size for the per-column encoding; should '
     'be even')
 
+
 class ColumnEncoding(nn.Module):
     """
     The column encoding accepts a description of the table header field

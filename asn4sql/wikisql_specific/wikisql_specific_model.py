@@ -123,9 +123,8 @@ class WikiSQLSpecificModel(nn.Module):
             self.column_encoding_for_cond.sequence_size,
             self.question_encoding_for_cond.final_size)
 
-        joint_embedding_size = (
-            self.column_encoding_for_agg.sequence_size +
-            self.question_encoding_for_agg.final_size)
+        joint_embedding_size = (self.column_encoding_for_agg.sequence_size +
+                                self.question_encoding_for_agg.final_size)
         self.aggregation_mlp = MLP(joint_embedding_size,
                                    [flags.FLAGS.aggregation_hidden] * 2,
                                    len(wikisql.AGGREGATION))
@@ -205,9 +204,12 @@ class WikiSQLSpecificModel(nn.Module):
         final_column_encoding_for_agg_e = self.agg_attention(
             sequence_column_encoding_for_agg_ce,
             final_question_encoding_for_agg_e)
-        joint_encoding_for_agg_e = torch.cat([
-            final_question_encoding_for_agg_e,
-            final_column_encoding_for_agg_e], dim=0)
+        joint_encoding_for_agg_e = torch.cat(
+            [
+                final_question_encoding_for_agg_e,
+                final_column_encoding_for_agg_e
+            ],
+            dim=0)
         aggregation_logits_a = self.aggregation_mlp(joint_encoding_for_agg_e)
 
         # selection prediction
@@ -228,18 +230,19 @@ class WikiSQLSpecificModel(nn.Module):
         final_column_encoding_for_cond_e = self.cond_attention(
             sequence_column_encoding_for_cond_ce,
             final_question_encoding_for_cond_e)
-        joint_encoding_for_cond_e = torch.cat([
-            final_question_encoding_for_cond_e,
-            final_column_encoding_for_cond_e], dim=0)
+        joint_encoding_for_cond_e = torch.cat(
+            [
+                final_question_encoding_for_cond_e,
+                final_column_encoding_for_cond_e
+            ],
+            dim=0)
         initial_decoder_state = self.decoder_initialization_mlp(
             joint_encoding_for_cond_e)
         initial_decoder_state = self.condition_decoder.create_initial_state(
             initial_decoder_state)
         conds = self._predicted_conds(
-            initial_decoder_state,
-            sequence_question_encoding_for_cond_qe,
-            sequence_column_encoding_for_cond_ce,
-            prepared_ex)
+            initial_decoder_state, sequence_question_encoding_for_cond_qe,
+            sequence_column_encoding_for_cond_ce, prepared_ex)
 
         return aggregation_logits_a, selection_logits_c, conds
 

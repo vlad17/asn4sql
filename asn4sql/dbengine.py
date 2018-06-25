@@ -69,7 +69,7 @@ class DBEngine:
                     val = float(parse_decimal(val))
                 except NumberFormatError:
                     _NUM_RE = re.compile(r'[-+]?\d*\.\d+|\d+')
-                    vals =_NUM_RE.findall(val)
+                    vals = _NUM_RE.findall(val)
                     if vals:
                         val = float(vals[0])
                     else:

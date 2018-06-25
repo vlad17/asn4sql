@@ -5,7 +5,6 @@ A static natural language embedding.
 import torch
 from torch import nn
 
-from ..utils import get_device
 
 class NLEmbedding(nn.Module):
     """
@@ -37,6 +36,6 @@ class NLEmbedding(nn.Module):
         self.embedding = nn.Embedding.from_pretrained(vecs, freeze=True)
         self.embedding_dim = vecs.size()[1]
 
-    def __call__(self, x):
+    def forward(self, x):
         with torch.no_grad():
             return self.embedding(x)

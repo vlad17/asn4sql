@@ -8,6 +8,7 @@ from torch.nn import functional as F
 
 from .pointer import Pointer
 
+
 class Attention(nn.Module):
     """
     Attend to a part of a sequence.
