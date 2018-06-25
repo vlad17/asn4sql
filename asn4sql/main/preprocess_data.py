@@ -4,6 +4,7 @@ Preprocess and validate pytorch data.
 Writes out the processed data to dataroot/wikisql/parsed_data.pth.
 """
 import os
+import random
 
 from absl import app
 from absl import flags
@@ -86,6 +87,19 @@ def _validate_data(train, val, test):
         if hasattr(field, 'vocab'):
             print(indent, name, len(field.vocab))
 
+    print()
+    print('10 longest unknown words not in train')
+    all_words = set(s for q in train.examples for s in q.src)
+    all_words |= set(s for q in train.examples for s in q.tbl
+                     if s != data.wikisql.SPLIT_WORD)
+    unknown = [w for w in all_words if w not in vocab]
+    unknown.sort(key=len, reverse=True)
+    for i in unknown[:10]:
+        print(' ' * 4 + i)
+    print()
+    print('and now 5 random ones')
+    for i in random.sample(unknown, 10):
+        print(' ' * 4 + i)
 
 if __name__ == '__main__':
     app.run(_main)

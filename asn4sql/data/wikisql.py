@@ -401,6 +401,7 @@ class Prediction:
         ex.cond_op = self.ops
         ex.cond_span_l = self.span_ls
         ex.cond_span_r = self.span_rs
+        ex.agg = self.agg
         return ex
 
     def condition_logical_match(self, ex):
