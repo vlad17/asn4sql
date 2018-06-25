@@ -3,6 +3,7 @@ Various utility functions used across several files.
 """
 
 import os
+import itertools
 import collections
 import hashlib
 import random
@@ -126,3 +127,22 @@ def disable_contiguous_rnn_warning():
     """
     msg = 'RNN module weights are not part of single contiguous chunk'
     warnings.filterwarnings("ignore", msg, UserWarning)
+
+
+def disable_source_code_warning():
+    """ignore warning about out-of-date models"""
+    warnings.simplefilter('ignore', torch.serialization.SourceChangeWarning)
+
+
+def chunkify(iterable, n):
+    """
+    Break up an iterable into chunks of size n, except for the last chunk,
+    if the iterable does not divide evenly.
+    """
+    # https://stackoverflow.com/questions/8991506
+    it = iter(iterable)
+    while True:
+        chunk = tuple(itertools.islice(it, n))
+        if not chunk:
+            return
+        yield chunk

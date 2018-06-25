@@ -7,30 +7,44 @@ small or easy to comprehend, but it is simple in that it
 is specialized to the structure of the WikiSQL prediction
 problem, which considers a small subset of the SQL language.
 
-The model is itself pretty minimal and very similar to Seq2SQL.
+The model is very similar to Seq2SQL and its related spin-offs.
 
-The src and ent embeddings are concatenated entrywise. Next,
-a bidirectional LSTM produces the concatenated forward and
-backward hidden states for the src and ent concatenation.
-The intermediate states comprise a sequence question embedding
-(SQE), and a unidirectional LSTM the produces a single final
-hidden state over the SCE that gives the question embedding
-(QE).
+The src and ent embeddings are concatenated entrywise. These
+comprise the "question".
 
-A bidirectional LSTM is also applied to every column
-description (the same LSTM, applied separately to each column).
-The final hidden state for each column is used to
-construct a sequence column embedding (SCE).
-Finally, we apply a second (unidirectional) LSTM to the SCE
-to obtain its final state, the column embedding (CE).
+The tbl embeddings comprise the "columns".
 
-We map the QE and CE into an aggregation via MLP.
+Both tbl and src embeddings are based on the glove natural language
+embedding, which remains fixed throughout training.
 
-We apply a pointer network conditioned on the QE to the SCE
+We encode the question and column embeddings with untied weights
+for the three separate wikisql prediction tasks:
+
+* aggregation prediction
+* selection column prediction
+* conjunctive condition prediction
+
+Currently, a question encoding transforms a sequence into an encoded sequence
+through the hidden states of a bidirectional LSTM. A summary of the
+sequence is also offered.
+
+In the case of the columns, however, a bidirectional LSTM is also applied
+to every column description (the same LSTM, applied separately to each column).
+The final hidden state for each column is used to construct the
+sequence column encoding.
+
+The final question encoding conditions attention over the sequence column
+encoding, producing a final column encoding.
+
+The final column encoding and final question encodings are fed into an MLP
+for aggregation classification.
+
+We apply a pointer network conditioned on the final question encoding
+over the sequence column encoding
 to obtain a selection classifier.
 
-The CE and QE are fed into a network which initializes the decoder
-state.
+The final column and question encodings are fed into a network which
+initializes the decoder state.
 
 Starting from initialization, the decoder produces hidden states
 that are then used to:
@@ -50,13 +64,16 @@ is teacher-forced during training.
 import sys
 
 from absl import flags
+import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
 
 from .mlp import MLP
-from .column_embedding import ColumnEmbedding
-from .question_embedding import QuestionEmbedding
+from .attention import Attention
+from .nl_embedding import NLEmbedding
+from .column_encoding import ColumnEncoding
+from .question_encoding import QuestionEncoding
 from .pointer import Pointer
 from .condition_decoder import ConditionDecoder
 from ..utils import get_device
@@ -83,21 +100,42 @@ class WikiSQLSpecificModel(nn.Module):
         super().__init__()
         self.fields = fields
 
-        self.column_embedding = ColumnEmbedding(fields['tbl'])
-        self.question_embedding = QuestionEmbedding(
-            self.column_embedding.embedding, fields['ent'])
-        joint_embedding_size = (self.column_embedding.final_size +
-                                self.question_embedding.final_size)
+        natural_language_embedding = NLEmbedding(fields['src'])
+        ent_field = fields['ent']
+        tbl_field = fields['tbl']
+        self.question_encoding_for_agg = QuestionEncoding(
+            natural_language_embedding, ent_field)
+        self.column_encoding_for_agg = ColumnEncoding(
+            natural_language_embedding, tbl_field)
+        self.question_encoding_for_sel = QuestionEncoding(
+            natural_language_embedding, ent_field)
+        self.column_encoding_for_sel = ColumnEncoding(
+            natural_language_embedding, tbl_field)
+        self.question_encoding_for_cond = QuestionEncoding(
+            natural_language_embedding, ent_field)
+        self.column_encoding_for_cond = ColumnEncoding(
+            natural_language_embedding, tbl_field)
+
+        self.agg_attention = Attention(
+            self.column_encoding_for_agg.sequence_size,
+            self.question_encoding_for_agg.final_size)
+        self.cond_attention = Attention(
+            self.column_encoding_for_cond.sequence_size,
+            self.question_encoding_for_cond.final_size)
+
+        joint_embedding_size = (self.column_encoding_for_agg.sequence_size +
+                                self.question_encoding_for_agg.final_size)
         self.aggregation_mlp = MLP(joint_embedding_size,
                                    [flags.FLAGS.aggregation_hidden] * 2,
                                    len(wikisql.AGGREGATION))
-        self.selection_ptrnet = Pointer(self.column_embedding.sequence_size,
-                                        self.question_embedding.final_size)
+        self.selection_ptrnet = Pointer(
+            self.column_encoding_for_sel.sequence_size,
+            self.question_encoding_for_sel.final_size)
         self.decoder_initialization_mlp = MLP(joint_embedding_size, [],
                                               flags.FLAGS.decoder_size)
         self.condition_decoder = ConditionDecoder(
-            self.column_embedding.sequence_size,
-            self.question_embedding.sequence_size)
+            self.column_encoding_for_cond.sequence_size,
+            self.question_encoding_for_cond.final_size)
 
     def prepare_example(self, ex):
         """
@@ -158,24 +196,57 @@ class WikiSQLSpecificModel(nn.Module):
         # o = cardinality of binary comparison operators
         # w = _MAX_COND_LENGTH
 
-        sqe_qe, qe_e = self.question_embedding(prepared_ex['src'],
-                                               prepared_ex['ent'])
-        sce_ce, ce_e = self.column_embedding(prepared_ex['tbl'])
-        joint_embedding_e = torch.cat([qe_e, ce_e], dim=0)
-        aggregation_logits_a = self.aggregation_mlp(joint_embedding_e)
-        selection_logits_c = self.selection_ptrnet(sce_ce, qe_e)
+        # aggregation prediction
+        _, final_question_encoding_for_agg_e = self.question_encoding_for_agg(
+            prepared_ex['src'], prepared_ex['ent'])
+        sequence_column_encoding_for_agg_ce = self.column_encoding_for_agg(
+            prepared_ex['tbl'])
+        final_column_encoding_for_agg_e = self.agg_attention(
+            sequence_column_encoding_for_agg_ce,
+            final_question_encoding_for_agg_e)
+        joint_encoding_for_agg_e = torch.cat(
+            [
+                final_question_encoding_for_agg_e,
+                final_column_encoding_for_agg_e
+            ],
+            dim=0)
+        aggregation_logits_a = self.aggregation_mlp(joint_encoding_for_agg_e)
 
-        # pytorch-related initialization setup
+        # selection prediction
+        _, final_question_encoding_for_sel_e = self.question_encoding_for_sel(
+            prepared_ex['src'], prepared_ex['ent'])
+        sequence_column_encoding_for_sel_ce = self.column_encoding_for_sel(
+            prepared_ex['tbl'])
+        selection_logits_c = self.selection_ptrnet(
+            sequence_column_encoding_for_sel_ce,
+            final_question_encoding_for_sel_e)
+
+        # condition (decoding) prediction
+        (sequence_question_encoding_for_cond_qe,
+         final_question_encoding_for_cond_e) = self.question_encoding_for_cond(
+             prepared_ex['src'], prepared_ex['ent'])
+        sequence_column_encoding_for_cond_ce = self.column_encoding_for_sel(
+            prepared_ex['tbl'])
+        final_column_encoding_for_cond_e = self.cond_attention(
+            sequence_column_encoding_for_cond_ce,
+            final_question_encoding_for_cond_e)
+        joint_encoding_for_cond_e = torch.cat(
+            [
+                final_question_encoding_for_cond_e,
+                final_column_encoding_for_cond_e
+            ],
+            dim=0)
         initial_decoder_state = self.decoder_initialization_mlp(
-            joint_embedding_e)
+            joint_encoding_for_cond_e)
         initial_decoder_state = self.condition_decoder.create_initial_state(
             initial_decoder_state)
-        conds = self._predicted_conds(initial_decoder_state, sqe_qe, sce_ce,
-                                      prepared_ex)
+        conds = self._predicted_conds(
+            initial_decoder_state, sequence_question_encoding_for_cond_qe,
+            sequence_column_encoding_for_cond_ce, prepared_ex)
 
         return aggregation_logits_a, selection_logits_c, conds
 
-    def _predicted_conds(self, hidden_state, sqe_qe, sce_ce, prepared_ex):
+    def _predicted_conds(self, hidden_state, question, columns, prepared_ex):
         stop_w2 = []
         op_logits_wo = []
         col_logits_wc = []
@@ -189,7 +260,7 @@ class WikiSQLSpecificModel(nn.Module):
         decoder_input = self.condition_decoder.dummy_input(stop=False)
         for i in range(_MAX_COND_LENGTH):
             decoder_output, hidden_state = self.condition_decoder(
-                hidden_state, decoder_input, sqe_qe, sce_ce)
+                hidden_state, decoder_input, question, columns)
             (pred_stop_2, pred_op_logits_o, pred_col_logits_c,
              pred_span_l_logits_q, pred_span_r_logits_q1) = decoder_output
             stop_w2.append(pred_stop_2)
@@ -223,7 +294,7 @@ class WikiSQLSpecificModel(nn.Module):
         Compute the model loss on the prepared example as well as whether
         the example was perfectly guessed.
         """
-        results = self.diagnose(prepared_ex)
+        results = self.diagnose(prepared_ex, with_prediction=False)
         loss, _ = results['loss (*total)']
         acc, _ = results['acc (*total)']
         return loss, acc
@@ -252,7 +323,7 @@ class WikiSQLSpecificModel(nn.Module):
         targ = torch.unsqueeze(targ, dim=0)
         return F.cross_entropy(pred, targ)
 
-    def diagnose(self, prepared_ex):
+    def diagnose(self, prepared_ex, with_prediction=True):
         """
         diagnostic info - returns a dictionary keyed by diagnostic name
         with the value being a tuple of the numerical value of the
@@ -289,13 +360,32 @@ class WikiSQLSpecificModel(nn.Module):
         sel_acc = selection_logits_c.argmax() == prepared_ex['sel']
         sel_acc = sel_acc.type(torch.float32)
 
+        if with_prediction:
+            stop = stop_w2.argmax(1).detach().cpu().numpy()
+            stop = stop.argmax() if np.any(stop) else None
+            ops = op_logits_wo.argmax(1).detach().cpu().numpy()[:stop]
+            cols = col_logits_wc.argmax(1).detach().cpu().numpy()[:stop]
+            span_l = span_l_logits_wq.argmax(1).detach().cpu().numpy()[:stop]
+            span_r = span_r_logits_wq1.argmax(1).detach().cpu().numpy()[:stop]
+            agg = aggregation_logits_a.argmax().detach().cpu().numpy()
+            sel = selection_logits_c.argmax().detach().cpu().numpy()
+            prediction = wikisql.Prediction(ops, cols, span_l, span_r, agg,
+                                            sel)
+            prediction.stop = list(stop_w2.argmax(1).detach().cpu().numpy())
+            prediction.stop_true = list(true_stop.detach().cpu().numpy())
+        else:
+            prediction = None
+
         return {
             'loss (*total)': (cond_loss + agg_loss + sel_loss, '{:8.4g}'),
-            'loss (cond)': (cond_loss, '{:8.4g}'),
-            'loss (agg)': (agg_loss, '{:8.4g}'),
-            'loss (sel)': (sel_loss, '{:8.4g}'),
             'acc (*total)': (cond_acc * agg_acc * sel_acc, '{:8.2%}'),
             'acc (cond)': (cond_acc, '{:8.2%}'),
             'acc (agg)': (agg_acc, '{:8.2%}'),
             'acc (sel)': (sel_acc, '{:8.2%}'),
+            'acc (cond: op)': (op_acc, '{:8.2%}'),
+            'acc (cond: col)': (col_acc, '{:8.2%}'),
+            'acc (cond: span_l)': (span_l_acc, '{:8.2%}'),
+            'acc (cond: span_r)': (span_r_acc, '{:8.2%}'),
+            'acc (cond: stop)': (stop_acc, '{:8.2%}'),
+            'prediction': prediction
         }

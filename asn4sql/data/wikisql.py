@@ -45,12 +45,14 @@ The literal is always assumed to be a span of the input question
 """
 
 import collections
+import copy
 import os
 import itertools
 import functools
 import json
 
 from absl import flags
+import numpy as np
 from tqdm import tqdm
 import spacy
 from spacy.tokens import Doc
@@ -227,7 +229,7 @@ def _wikisql_data_readers(db):
         return [op_idx for _, op_idx, _ in query_json['query']['conds']]
 
     field_cond_op = torchtext.data.Field(
-        tokenize=_tokenize, pad_token=-1, use_vocab=False)
+        tokenize=_tokenize, pad_token=-1, use_vocab=False, batch_first=True)
 
     def _validate_cond_op(_query_json, ex):
         for op_idx in ex.cond_op:
@@ -370,6 +372,62 @@ def wikisql(toy):
         os.path.join(wikisql_dir, 'dbs', 'test.db'), toy)
 
     return train, val, test
+
+
+class Prediction:
+    """
+    Minimal container of data necessary to make a prediction about what a
+    WikiSQL query will look like.
+    """
+
+    def __init__(self, ops, cols, span_ls, span_rs, agg, sel):
+        self.ops = ops
+        self.num_conds = len(ops)
+        self.cols = cols
+        self.span_ls = span_ls
+        self.span_rs = span_rs
+        self.agg = agg
+        self.sel = sel
+        # TODO validation ops cols, spans all same length
+        # TODO more validation...
+        # span_rs = [max(l, r) for l, r in zip(self.span_ls, self.span_rs)]
+
+    def as_query_example(self, ex):
+        """return a runnable instance of this prediction"""
+
+        ex = copy.copy(ex)
+        ex.cond_col = self.cols
+        ex.sel = self.sel
+        ex.cond_op = self.ops
+        ex.cond_span_l = self.span_ls
+        ex.cond_span_r = self.span_rs
+        return ex
+
+    def condition_logical_match(self, ex):
+        """
+        returns whether the conditions logically match with the given
+        example.
+        """
+        if len(ex.cond_op) != self.num_conds:
+            return False
+
+        if not self.num_conds:
+            return True
+
+        # the condition can be fully represented as a 4-by-(num conds)
+        # integer matrix
+        true_cond = np.array(
+            [ex.cond_col, ex.cond_op, ex.cond_span_l, ex.cond_span_r],
+            dtype=int)
+        pred_cond = np.array(
+            [self.cols, self.ops, self.span_ls, self.span_rs], dtype=int)
+
+        idx = np.lexsort(true_cond)
+        true_cond = true_cond[:, idx]
+        idx = np.lexsort(pred_cond)
+        pred_cond = pred_cond[:, idx]
+
+        return np.array_equal(true_cond, pred_cond)
 
 
 class TableDataset(torchtext.data.Dataset):

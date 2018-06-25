@@ -45,7 +45,7 @@ class SharedGPU:
         for worker in self._workers:
             worker.set_mode(evaluation)
         for worker in self._workers:
-            worker.set_mode_finish(evaluation)
+            worker.set_mode_finish()
 
     def train(self, examples):
         """
@@ -126,7 +126,8 @@ class _Remote:
 
     def __init__(self, model):
         self.model = model
-        self.optimizer = optim.SGD(model.parameters(), lr=0.1)
+        self.optimizer = optim.SGD(
+            [p for p in model.parameters() if p.requires_grad], lr=0.1)
 
     def zero_grad(self):
         """zero the optimizer grad"""
@@ -303,10 +304,16 @@ def _diagnose(model, examples):
         prepared_ex = model.prepare_example(ex)
         ex_diagnostics = model.diagnose(prepared_ex)
         with torch.no_grad():
+            # TODO get rid of the built-in fmting in diagnose
+            # instead just have a fmt rule in train loss -> 8.4g
+            # and acc -> 8.2%
+            prediction = ex_diagnostics['prediction']
+            del ex_diagnostics['prediction']
             ex_diagnostics = {
                 k: (v.cpu().detach().numpy(), fmt)
                 for k, (v, fmt) in ex_diagnostics.items()
             }
+            ex_diagnostics['prediction'] = prediction
         diagnostics.append(ex_diagnostics)
     return diagnostics
 

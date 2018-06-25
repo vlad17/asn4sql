@@ -9,7 +9,6 @@ Assumes that the processed-toy(0|1).pth dataset exists in
 from contextlib import closing
 import os
 import shutil
-import itertools
 
 from absl import app
 from absl import flags
@@ -23,7 +22,7 @@ from asn4sql.shared_gpu import SharedGPU
 from asn4sql import data
 from asn4sql import wikisql_specific
 from asn4sql.utils import (seed_all, gpus, get_device, RollingAverageWindow,
-                           intfmt)
+                           intfmt, chunkify)
 
 # dataset and initialization config
 flags.DEFINE_integer('seed', 1, 'random seed')
@@ -50,11 +49,12 @@ flags.DEFINE_integer('batch_size', 64, 'batch size')
 flags.DEFINE_integer(
     'patience', 3, 'number of consecutive epochs of '
     'a lack of improvement in validation loss to tolerate '
-    'before early stopping (on the next unimproving epoch)')
+    'before reducing the LR (on next unimproving epoch)')
 flags.DEFINE_float('learning_rate', 0.1, 'initial learning rate')
 flags.DEFINE_float(
-    'lr_decay_rate', 0.25, 'decay rate for learning rate, '
+    'lr_decay_rate', 0.5, 'decay rate for learning rate, '
     'used when validation loss stops improving')
+flags.DEFINE_float('min_lr', 1e-5, 'stop training when lr gets this low')
 
 
 def _main(argv):
@@ -74,7 +74,8 @@ def _main(argv):
     log.debug('building model')
     model = wikisql_specific.WikiSQLSpecificModel(train.fields)
     log.debug('built model:\n{}', model)
-    num_parameters = int(sum(p.numel() for p in model.parameters()))
+    num_parameters = int(
+        sum(p.numel() for p in model.parameters() if p.requires_grad))
     log.debug('number of parameters in model {}', num_parameters)
 
     device = get_device()
@@ -110,7 +111,7 @@ def _do_training(model, train, val, shared, training_state):
             'gradnorm': '{:08.2e}'.format(grad_window.value())
         }
 
-    model.train()
+    shared.set_mode(evaluation=False)
     shared.lr(training_state.lr)
     perm = np.arange(len(train))
 
@@ -123,7 +124,7 @@ def _do_training(model, train, val, shared, training_state):
 
         samples = (train[i] for i in perm)
         with tqdm(total=len(train), postfix=_tqdm_postfix()) as progbar:
-            for exs in _chunkify(samples, batch_size):
+            for exs in chunkify(samples, batch_size):
                 loss, acc, gradnorm = shared.train(exs)
                 loss_window.update(loss)
                 acc_window.update(acc)
@@ -132,16 +133,16 @@ def _do_training(model, train, val, shared, training_state):
                 progbar.update(len(exs))
                 progbar.set_postfix(**_tqdm_postfix())
 
-        model.eval()
+        shared.set_mode(evaluation=True)
         val_diagnostics = _diagnose(val, shared)
         train_diagnositcs = _diagnose(train, shared, len(val))
+        shared.set_mode(evaluation=False)
         val_diagnostics_str = _str_diagnostics('val', val_diagnostics)
         train_diagnositcs_str = _str_diagnostics('(sampled) train',
                                                  train_diagnositcs)
         log.debug('epoch ' + epochfmt + ' of ' + epochfmt + '\n{}\n{}', epoch,
                   flags.FLAGS.max_epochs, val_diagnostics_str,
                   train_diagnositcs_str)
-        model.train()
 
         cur_val_loss = val_diagnostics['loss (*total)'][0]
         if cur_val_loss < training_state.best_val_loss:
@@ -152,18 +153,22 @@ def _do_training(model, train, val, shared, training_state):
             _save_checkpoint(best_file, model, training_state)
         else:
             training_state.patience -= 1
-            training_state.lr *= flags.FLAGS.lr_decay_rate
-            log.debug('val loss not improving; dropping learning rate')
+            log.debug('val loss not improving; dropping patience')
             shared.lr(training_state.lr)
 
-        log.debug('lr {} patience {} best loss so far {}', training_state.lr,
-                  training_state.patience, training_state.best_val_loss)
+        if training_state.patience == 0:
+            log.debug('out of patience, dropping lr')
+            training_state.lr *= flags.FLAGS.lr_decay_rate
+            training_state.patience = training_state.initial_patience
 
-        early_stop = training_state.patience < 0
+        log.debug('lr {} patience {} best val loss so far {}',
+                  training_state.lr, training_state.patience,
+                  training_state.best_val_loss)
+
+        early_stop = training_state.lr < flags.FLAGS.min_lr
         if early_stop:
-            log.debug(
-                'encountered {} drops in val loss in a row; '
-                'early stopping', training_state.initial_patience + 1)
+            log.debug('lr dropped to {} < min tolerable lr {}, early stopping',
+                      training_state.lr, flags.FLAGS.min_lr)
 
         if _check_period(epoch, flags.FLAGS.persist_every) or early_stop:
             epochfmt = intfmt(flags.FLAGS.max_epochs, fill='0')
@@ -186,9 +191,10 @@ def _diagnose(dataset, shared, subsample=None):
     samples = (dataset[i] for i in subsample)
     # can afford larger batch size for eval
     batch_size = flags.FLAGS.batch_size * max(flags.FLAGS.workers, 1)
-    for exs in _chunkify(samples, batch_size):
+    for exs in chunkify(samples, batch_size):
         diagnostics = shared.diagnose(exs)
         for ex in diagnostics:
+            del ex['prediction']
             for k, (value, fmt) in ex.items():
                 if k not in sum_diagnostics:
                     sum_diagnostics[k] = (value, fmt)
@@ -215,16 +221,6 @@ def _str_diagnostics(diagnostics_name, diagnostics):
     return preamble + newline_and_indent + newline_and_indent.join(
         (namefmt + ' ' + valuefmt).format(name, value)
         for name, value, valuefmt in values)
-
-
-def _chunkify(iterable, n):
-    # https://stackoverflow.com/questions/8991506
-    it = iter(iterable)
-    while True:
-        chunk = tuple(itertools.islice(it, n))
-        if not chunk:
-            return
-        yield chunk
 
 
 def _check_period(idx, period):
