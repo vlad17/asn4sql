@@ -5,6 +5,7 @@ WikiSQL repository.
 
 import os
 import re
+import string
 import functools
 
 from babel.numbers import parse_decimal, NumberFormatError
@@ -110,7 +111,9 @@ class DBEngine:
             cols.pop()
         for i, col_desc in enumerate(s.strip() for s in cols):
             colname = col_desc
-            if re.search(r'\s|/|\p', colname):
+            contains_punctuation = any(
+                p in colname for p in string.punctuation)
+            if re.search(r'\s', colname) or contains_punctuation:
                 colname = '"{}"'.format(colname)
             query_str = query_str.replace('col{}'.format(i), colname)
         return query_str
