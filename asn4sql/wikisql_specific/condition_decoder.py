@@ -11,6 +11,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from .mlp import MLP
+from .attention import Attention
 from .pointer import Pointer
 from ..data import wikisql
 from ..utils import get_device
@@ -48,13 +49,9 @@ class ConditionDecoder(nn.Module):
         self.op_embedding = nn.Embedding(num_words,
                                          flags.FLAGS.op_embedding_size)
 
-        decoder_input_size = (self.op_embedding.embedding_dim + col_seq_size)
-
-        self.decoder_lstm = nn.LSTM(
-            decoder_input_size,
-            flags.FLAGS.decoder_size,
-            num_layers=1,
-            bidirectional=False)
+        self.src_attn = Attention(src_seq_size, flags.FLAGS.decoder_size)
+        self.col_attn = Attention(col_seq_size,
+                                  flags.FLAGS.decoder_size + src_seq_size)
 
         input_size = flags.FLAGS.decoder_size
         self.stop_logits = MLP(input_size, [], 2)
@@ -64,6 +61,15 @@ class ConditionDecoder(nn.Module):
         input_size += col_seq_size  # add an attention context
         self.span_l_ptr_logits = Pointer(src_seq_size, input_size)
         self.span_r_ptr_logits = Pointer(src_seq_size, input_size)
+
+        decoder_input_size = (self.op_embedding.embedding_dim + col_seq_size +
+                              col_seq_size + src_seq_size)
+
+        self.decoder_lstm = nn.LSTM(
+            decoder_input_size,
+            flags.FLAGS.decoder_size,
+            num_layers=1,
+            bidirectional=False)
 
     @staticmethod
     def dummy_input(stop=False):
@@ -124,10 +130,21 @@ class ConditionDecoder(nn.Module):
         op_idx = self._optensor(op)
         op_e = self.op_embedding(op_idx)
         col_e = self._fetch_or_zero(sce_ce, col)
+        # TODO figure out a good way of feeding span_l and span_r as inputs
+        # to the decoder.
 
         # TODO add attention based on decoder hidden state over both
         # sequences.
-        decoder_input_11i = torch.cat([op_e, col_e]).view(1, 1, -1)
+        # TODO create separate method for decoding and hidden
+        # updates to avoid dummy input
+        # Double Attention as done in RobustFill
+        hidden_cells_11e, _ = hidden_state
+        attn_context = hidden_cells_11e.view(-1)
+        attended_src = self.src_attn(sqe_qe, attn_context)
+        attn_context = torch.cat([attn_context, attended_src])
+        attended_col = self.col_attn(sce_ce, attn_context)
+        decoder_input_11i = torch.cat(
+            [op_e, col_e, attended_src, attended_col]).view(1, 1, -1)
 
         decoder_output_11e, hidden_state = self.decoder_lstm(
             decoder_input_11i, hidden_state)
@@ -140,7 +157,7 @@ class ConditionDecoder(nn.Module):
         context = torch.cat([context, op_logits_o.detach()])
         col_logits_c = self.col_ptr_logits(sce_ce, context)
 
-        # TODO make actual attn
+        # Attend to column inputs as context for question pointing
         col_attn_e = sce_ce.t().mv(F.softmax(col_logits_c, dim=0))
         context = torch.cat([context, col_attn_e])
         span_l_logits_q = self.span_l_ptr_logits(sqe_qe, context)

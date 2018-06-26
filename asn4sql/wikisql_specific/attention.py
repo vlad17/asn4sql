@@ -11,7 +11,7 @@ from .pointer import Pointer
 
 class Attention(nn.Module):
     """
-    Attend to a part of a sequence.
+    Attend to a part of a sequence with Bahdanau general attention.
     """
 
     def __init__(self, sequence_size, context_size):
