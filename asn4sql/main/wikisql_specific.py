@@ -38,7 +38,7 @@ flags.DEFINE_string(
     'restore training from this checkpoint; the current best '
     'from the restored run must be in the same directory ')
 flags.DEFINE_integer(
-    'persist_every', 10,
+    'persist_every', 5,
     'period of epochs between checkpoint persists (0 to disable)')
 flags.DEFINE_integer('max_epochs', 100,
                      'maximum number of epochs for training')
@@ -47,6 +47,8 @@ flags.DEFINE_integer(
     'training in a data-parallel manner (we only ever use '
     'at most one GPU, but python-heavy processing can be '
     'parallelized. Use a single process if set to 0.')
+flags.DEFINE_string('experiment_comment', '',
+                    'string comment about this trial')
 
 # optimizer
 flags.DEFINE_integer('batch_size', 64, 'batch size')
@@ -59,8 +61,9 @@ flags.DEFINE_float(
     'lr_decay_rate', 0.5, 'decay rate for learning rate, '
     'used when validation loss stops improving')
 flags.DEFINE_float('min_lr', 1e-5, 'stop training when lr gets this low')
-flags.DEFINE_enum('optimizer', 'sgd', ['sgd', 'adam'],
+flags.DEFINE_enum('optimizer', 'sgd', ['sgd', 'adam', 'momentum'],
                   'optimization algorithm')
+flags.DEFINE_float('weight_decay', 0, 'L2 regularization')
 
 
 def _main(_):
@@ -96,9 +99,20 @@ def _main(_):
         params_to_optimize = [p for p in model.parameters() if p.requires_grad]
         if flags.FLAGS.optimizer == 'sgd':
             # lr required here but will be set in _do_training
-            optimizer = optim.SGD(params_to_optimize, lr=1)
+            optimizer = optim.SGD(
+                params_to_optimize,
+                lr=1,
+                weight_decay=flags.FLAGS.weight_decay)
+        elif flags.FLAGS.optimizer == 'momentum':
+            # lr required here but will be set in _do_training
+            optimizer = optim.SGD(
+                params_to_optimize,
+                lr=1,
+                momentum=0.9,
+                weight_decay=flags.FLAGS.weight_decay)
         elif flags.FLAGS.optimizer == 'adam':
-            optimizer = optim.Adam(params_to_optimize)
+            optimizer = optim.Adam(
+                params_to_optimize, weight_decay=flags.FLAGS.weight_decay)
         else:
             raise ValueError('unrecognized optimizer {}'.format(
                 flags.FLAGS.optimizer))

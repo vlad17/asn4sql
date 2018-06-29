@@ -8,7 +8,7 @@ See `setup.py` for necessary python packages. Requires a linux x64 box. Note the
 conda create -y -n asn4sql-env python=3.5
 source activate asn4sql-env
 ./scripts/install-pytorch.sh
-pip install --upgrade git+https://github.com/richardliaw/track.git@master#egg=track
+pip install --no-cache-dir --upgrade git+https://github.com/richardliaw/track.git@master#egg=track
 pip install --no-cache-dir --editable .
 python -m spacy download en_core_web_lg
 ```

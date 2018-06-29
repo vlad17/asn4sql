@@ -11,14 +11,16 @@ from torch import nn
 from torch.nn import functional as F
 
 from .mlp import MLP
-from .attention import Attention
 from .pointer import Pointer
+from . import double_attention
 from ..data import wikisql
 from ..utils import get_device
 
 flags.DEFINE_integer('decoder_size', 128, 'hidden state size for the decoder')
 flags.DEFINE_integer('op_embedding_size', 16,
                      'embedding size for conditional operators')
+flags.DEFINE_enum('multi_attn', 'double', ['double', 'symm', 'outer'],
+                  'multi-sequence attention type')
 
 
 class ConditionDecoder(nn.Module):
@@ -48,10 +50,17 @@ class ConditionDecoder(nn.Module):
         num_words = len(wikisql.CONDITIONAL)
         self.op_embedding = nn.Embedding(num_words,
                                          flags.FLAGS.op_embedding_size)
-
-        self.src_attn = Attention(src_seq_size, flags.FLAGS.decoder_size)
-        self.col_attn = Attention(col_seq_size,
-                                  flags.FLAGS.decoder_size + src_seq_size)
+        if flags.FLAGS.multi_attn == 'double':
+            double_attn = double_attention.DoubleAttention
+        elif flags.FLAGS.multi_attn == 'symm':
+            double_attn = double_attention.SymmetricDoubleAttention
+        elif flags.FLAGS.multi_attn == 'outer':
+            double_attn = double_attention.OuterAttention
+        else:
+            raise ValueError('unsupported multi attention {}'
+                             .format(flags.FLAGS.multi_attn))
+        self.src_col_attn = double_attn(src_seq_size, col_seq_size,
+                                        flags.FLAGS.decoder_size)
 
         input_size = flags.FLAGS.decoder_size
         self.stop_logits = MLP(input_size, [], 2)
@@ -133,16 +142,10 @@ class ConditionDecoder(nn.Module):
         # TODO figure out a good way of feeding span_l and span_r as inputs
         # to the decoder.
 
-        # TODO add attention based on decoder hidden state over both
-        # sequences.
-        # TODO create separate method for decoding and hidden
-        # updates to avoid dummy input
-        # Double Attention as done in RobustFill
         hidden_cells_11e, _ = hidden_state
         attn_context = hidden_cells_11e.view(-1)
-        attended_src = self.src_attn(sqe_qe, attn_context)
-        attn_context = torch.cat([attn_context, attended_src])
-        attended_col = self.col_attn(sce_ce, attn_context)
+        attended_src, attended_col = self.src_col_attn(sqe_qe, sce_ce,
+                                                       attn_context)
         decoder_input_11i = torch.cat(
             [op_e, col_e, attended_src, attended_col]).view(1, 1, -1)
 
