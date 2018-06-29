@@ -8,8 +8,6 @@ import subprocess
 from absl import flags
 import torch
 
-from .. import log
-
 flags.DEFINE_string('dataroot', './data', 'data caching directory')
 
 
@@ -53,9 +51,7 @@ def cached_fetch(path, gen):
     """
     path = os.path.join(flags.FLAGS.dataroot, path)
     if os.path.isfile(path):
-        log.debug('cache hit {}', path)
         return torch.load(path)
-    log.debug('cache miss {}', path)
     obj = gen()
     torch.save(obj, path)
     return obj

@@ -7,17 +7,19 @@ Assumes that the processed-toy(0|1).pth dataset exists in
 """
 
 from contextlib import closing
+from collections import defaultdict
+import tempfile
 import os
 import shutil
 
 from absl import app
 from absl import flags
+import track
 import torch
 import torch.utils
 from tqdm import tqdm
 import numpy as np
 
-from asn4sql import log
 from asn4sql.shared_gpu import SharedGPU
 from asn4sql import data
 from asn4sql import wikisql_specific
@@ -27,6 +29,7 @@ from asn4sql.utils import (seed_all, gpus, get_device, RollingAverageWindow,
 # dataset and initialization config
 flags.DEFINE_integer('seed', 1, 'random seed')
 flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
+flags.DEFINE_string('trial_prefix', '', 'track.Trial name prefix')
 
 # training logistics
 flags.DEFINE_string(
@@ -57,44 +60,44 @@ flags.DEFINE_float(
 flags.DEFINE_float('min_lr', 1e-5, 'stop training when lr gets this low')
 
 
-def _main(argv):
+def _main(_):
+    with track.trial(
+            param_map=track.absl_flags(),
+            trial_prefix=flags.FLAGS.trial_prefix):
+        seed_all(flags.FLAGS.seed)
+        track.debug('found gpus {}', gpus())
 
-    seed_all(flags.FLAGS.seed)
-    log_subdir = log.flaghash_dirname([argv[0]], ['seed'])
-    log.init(log_subdir)
+        dataset_file = os.path.join(
+            flags.FLAGS.dataroot, 'wikisql',
+            'processed-toy{}.pth'.format(1 if flags.FLAGS.toy else 0))
+        track.debug('loading data from {}', dataset_file)
+        train, val, _ = torch.load(dataset_file)
 
-    log.debug('found gpus {}', gpus())
+        track.debug('building model')
+        model = wikisql_specific.WikiSQLSpecificModel(train.fields)
+        track.debug('built model:\n{}', model)
+        num_parameters = int(
+            sum(p.numel() for p in model.parameters() if p.requires_grad))
+        track.debug('number of parameters in model {}', num_parameters)
 
-    dataset_file = os.path.join(
-        flags.FLAGS.dataroot, 'wikisql',
-        'processed-toy{}.pth'.format(1 if flags.FLAGS.toy else 0))
-    log.debug('loading data from {}', dataset_file)
-    train, val, _ = torch.load(dataset_file)
+        device = get_device()
+        torch.save(
+            model.to(torch.device('cpu')),
+            os.path.join(track.trial_dir(), 'untrained_model.pth'))
+        model = model.to(device)
+        training_state = _TrainingState()
+        if flags.FLAGS.restore_checkpoint:
+            _copy_best_checkpoint(flags.FLAGS.restore_checkpoint)
+            _load_checkpoint(flags.FLAGS.restore_checkpoint, model,
+                             training_state)
+        model = model.share_memory()
 
-    log.debug('building model')
-    model = wikisql_specific.WikiSQLSpecificModel(train.fields)
-    log.debug('built model:\n{}', model)
-    num_parameters = int(
-        sum(p.numel() for p in model.parameters() if p.requires_grad))
-    log.debug('number of parameters in model {}', num_parameters)
-
-    device = get_device()
-    torch.save(
-        model.to(torch.device('cpu')),
-        os.path.join(log.logging_directory(), 'untrained_model.pth'))
-    model = model.to(device)
-    training_state = _TrainingState()
-    if flags.FLAGS.restore_checkpoint:
-        _copy_best_checkpoint(flags.FLAGS.restore_checkpoint)
-        _load_checkpoint(flags.FLAGS.restore_checkpoint, model, training_state)
-    model = model.share_memory()
-
-    num_workers = flags.FLAGS.workers
-    log.debug('initializing {} workers', num_workers)
-    with closing(SharedGPU(model, num_workers)) as shared:
-        shared.zero_grad()
-        log.debug('all {} remote workers initialized', num_workers)
-        _do_training(model, train, val, shared, training_state)
+        num_workers = flags.FLAGS.workers
+        track.debug('initializing {} workers', num_workers)
+        with closing(SharedGPU(model, num_workers)) as shared:
+            shared.zero_grad()
+            track.debug('all {} remote workers initialized', num_workers)
+            _do_training(model, train, val, shared, training_state)
 
 
 def _do_training(model, train, val, shared, training_state):
@@ -118,7 +121,7 @@ def _do_training(model, train, val, shared, training_state):
     for epoch in range(1 + training_state.epoch, 1 + flags.FLAGS.max_epochs):
         epochfmt = intfmt(flags.FLAGS.max_epochs)
         training_state.epoch = epoch
-        log.debug('begin epoch ' + epochfmt, epoch)
+        track.debug('begin epoch ' + epochfmt, epoch)
         # one sample at a time greatly simplifies pytorch seq2seq!
         np.random.shuffle(perm)
 
@@ -135,45 +138,55 @@ def _do_training(model, train, val, shared, training_state):
 
         shared.set_mode(evaluation=True)
         val_diagnostics = _diagnose(val, shared)
-        train_diagnositcs = _diagnose(train, shared, len(val))
+        train_diagnostics = _diagnose(train, shared, len(val))
+        track.metric(iteration=epoch, lr=training_state.lr)
+        track.metric(
+            iteration=epoch,
+            **{'val ' + k: v
+               for k, v in val_diagnostics.items()})
+        track.metric(
+            iteration=epoch,
+            **{'train ' + k: v
+               for k, v in train_diagnostics.items()})
         shared.set_mode(evaluation=False)
         val_diagnostics_str = _str_diagnostics('val', val_diagnostics)
         train_diagnositcs_str = _str_diagnostics('(sampled) train',
-                                                 train_diagnositcs)
-        log.debug('epoch ' + epochfmt + ' of ' + epochfmt + '\n{}\n{}', epoch,
-                  flags.FLAGS.max_epochs, val_diagnostics_str,
-                  train_diagnositcs_str)
+                                                 train_diagnostics)
+        track.debug('epoch ' + epochfmt + ' of ' + epochfmt + '\n{}\n{}',
+                    epoch, flags.FLAGS.max_epochs, val_diagnostics_str,
+                    train_diagnositcs_str)
 
-        cur_val_loss = val_diagnostics['loss (*total)'][0]
+        cur_val_loss = val_diagnostics['loss (*total)']
         if cur_val_loss < training_state.best_val_loss:
             training_state.patience = training_state.initial_patience
             training_state.best_val_loss = cur_val_loss
             best_file = _checkpoint_file('best.pth')
-            log.debug('updating best model into file {}', best_file)
+            track.debug('updating best model into file {}', best_file)
             _save_checkpoint(best_file, model, training_state)
         else:
             training_state.patience -= 1
-            log.debug('val loss not improving; dropping patience')
+            track.debug('val loss not improving; dropping patience')
             shared.lr(training_state.lr)
 
         if training_state.patience == 0:
-            log.debug('out of patience, dropping lr')
+            track.debug('out of patience, dropping lr')
             training_state.lr *= flags.FLAGS.lr_decay_rate
             training_state.patience = training_state.initial_patience
 
-        log.debug('lr {} patience {} best val loss so far {}',
-                  training_state.lr, training_state.patience,
-                  training_state.best_val_loss)
+        track.debug('lr {} patience {} best val loss so far {}',
+                    training_state.lr, training_state.patience,
+                    training_state.best_val_loss)
 
         early_stop = training_state.lr < flags.FLAGS.min_lr
         if early_stop:
-            log.debug('lr dropped to {} < min tolerable lr {}, early stopping',
-                      training_state.lr, flags.FLAGS.min_lr)
+            track.debug(
+                'lr dropped to {} < min tolerable lr {}, early stopping',
+                training_state.lr, flags.FLAGS.min_lr)
 
         if _check_period(epoch, flags.FLAGS.persist_every) or early_stop:
             epochfmt = intfmt(flags.FLAGS.max_epochs, fill='0')
             checkpoint_file = _checkpoint_file(epochfmt.format(epoch) + '.pth')
-            log.debug('persisting model to {}', checkpoint_file)
+            track.debug('persisting model to {}', checkpoint_file)
             _save_checkpoint(checkpoint_file, model, training_state)
 
         if early_stop:
@@ -187,7 +200,7 @@ def _diagnose(dataset, shared, subsample=None):
     else:
         subsample = np.random.choice(len(dataset), subsample, replace=False)
         num_items = len(subsample)
-    sum_diagnostics = {}
+    sum_diagnostics = defaultdict(float)
     samples = (dataset[i] for i in subsample)
     # can afford larger batch size for eval
     batch_size = flags.FLAGS.batch_size * max(flags.FLAGS.workers, 1)
@@ -195,17 +208,11 @@ def _diagnose(dataset, shared, subsample=None):
         diagnostics = shared.diagnose(exs)
         for ex in diagnostics:
             del ex['prediction']
-            for k, (value, fmt) in ex.items():
-                if k not in sum_diagnostics:
-                    sum_diagnostics[k] = (value, fmt)
-                else:
-                    sum_value, sum_fmt = sum_diagnostics[k]
-                    assert sum_fmt == fmt, (sum_fmt, fmt)
-                    sum_value += value
-                    sum_diagnostics[k] = (sum_value, fmt)
+            for k, value in ex.items():
+                sum_diagnostics[k] += value
     avg_diagnostics = {
-        k: (value / num_items, fmt)
-        for k, (value, fmt) in sum_diagnostics.items()
+        k: value / num_items
+        for k, value in sum_diagnostics.items()
     }
     return avg_diagnostics
 
@@ -217,10 +224,13 @@ def _str_diagnostics(diagnostics_name, diagnostics):
     newline_and_indent = '\n    '
     maxlen = max(map(len, diagnostics))
     namefmt = '{:<' + str(maxlen) + '}'
-    values = [(k, ) + diagnostics[k] for k in sorted(diagnostics)]
+    values = [(k, diagnostics[k]) for k in sorted(diagnostics)]
+    lossfmt = '{:8.4g}'
+    accfmt = '{:8.2%}'
     return preamble + newline_and_indent + newline_and_indent.join(
-        (namefmt + ' ' + valuefmt).format(name, value)
-        for name, value, valuefmt in values)
+        (namefmt + ' ' +
+         (lossfmt if 'loss' in name else accfmt)).format(name, value)
+        for name, value in values)
 
 
 def _check_period(idx, period):
@@ -230,7 +240,7 @@ def _check_period(idx, period):
 
 
 def _checkpoint_file(basename):
-    checkpoint_file = os.path.join(log.logging_directory(), 'checkpoints',
+    checkpoint_file = os.path.join(track.trial_dir(), 'checkpoints',
                                    basename)
     return checkpoint_file
 
@@ -242,14 +252,14 @@ def _copy_best_checkpoint(checkpoint_file):
             'was expecting checkpoint file {} to have a sibling '
             'file best.pth for the running best model'.format(checkpoint_file))
     best_dst = _checkpoint_file('best.pth')
-    log.debug('copying best running model file from {} to {}', bestfile,
-              best_dst)
+    track.debug('copying best running model file from {} to {}', bestfile,
+                best_dst)
     os.makedirs(os.path.dirname(best_dst), exist_ok=True)
     shutil.copyfile(bestfile, best_dst)
 
 
 def _load_checkpoint(checkpoint_file, model, training_state):
-    log.debug('restoring model from {}', flags.FLAGS.restore_checkpoint)
+    track.debug('restoring model from {}', flags.FLAGS.restore_checkpoint)
     state_dict = torch.load(checkpoint_file)
     model.load_state_dict(state_dict['model'])
     training_state.load_state_dict(state_dict['training_state'])

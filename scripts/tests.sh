@@ -38,35 +38,25 @@ main() {
     trap note_failure EXIT
 
     cmds=()
-    cmds+=("rm -rf ./logs/_test")
     cmds+=("rm -rf ./data/wikisql/processed-toy1.pth")
-    cmds+=("python asn4sql/main/preprocess_data.py --logroot ./logs/_test --seed 1 --toy")
-    cmds+=("test -f ./logs/_test/*/seed-1/log.txt")
-    cmds+=("test -f ./logs/_test/*/seed-1/flags.flags")
-    cmds+=("test -f ./logs/_test/*/seed-1/flags.json")
-    cmds+=("test -f ./logs/_test/*/seed-1/githash.txt")
-    cmds+=("test -f ./logs/_test/*/seed-1/invocation.txt")
-    cmds+=("test -f ./logs/_test/*/seed-1/log.txt")
-    cmds+=("test -f ./logs/_test/*/seed-1/starttime.txt")
+    cmds+=("python asn4sql/main/preprocess_data.py --seed 1 --toy")
     cmds+=("test -f ./data/wikisql/processed-toy1.pth")
-    cmds+=("rm -rf ./logs/_test2")
-    cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 1 --max_epochs 1 --seed 3 --logroot ./logs/_test2 --workers 1 --batch_size 4")
-    cmds+=("test -f ./logs/_test2/*/seed-3/untrained_model.pth")
-    cmds+=("test -f ./logs/_test2/*/seed-3/checkpoints/best.pth")
-    cmds+=("test -f ./logs/_test2/*/seed-3/checkpoints/1.pth")
-    cmds+=("rm -rf ./logs/_test3")
-    cmds+=("python asn4sql/main/wikisql_specific.py --toy --max_epochs 1 --seed 3 --logroot ./logs/_test3 --persist_every 0 --workers 0 --batch_size 4 --restore_checkpoint ./logs/_test2/*/seed-3/checkpoints/1.pth")
-    cmds+=("test -f ./logs/_test3/*/seed-3/checkpoints/best.pth")
-    cmds+=("test ! -f ./logs/_test3/*/seed-3/checkpoints/1.pth")
+    cmds+=("rm -rf ~/track/asn4sql/test_*")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 1 --max_epochs 1 --seed 3 --workers 1 --batch_size 4 --trial_prefix test_")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --max_epochs 1 --seed 3 --persist_every 0 --workers 0 --batch_size 4 --restore_checkpoint $HOME/track/asn4sql/test_*/checkpoints/1.pth")
+    cmds+=("test -f $HOME/track/asn4sql/test_*/checkpoints/best.pth")
+    cmds+=('python asn4sql/main/test_wikisql.py --toy --trial $(basename $HOME/track/asn4sql/test_*)')
 
     for cmd in "${cmds[@]}"; do
         box "${cmd}"
         if [ "$DRY_RUN" != "true" ] ; then
-            $cmd
+            eval "$cmd"
         fi
     done
 
     trap '' EXIT
+
+    box "TEST SUCCESSFUL"
 }
 
 main

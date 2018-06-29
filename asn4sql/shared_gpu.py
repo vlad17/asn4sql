@@ -6,15 +6,12 @@ to the RNN training process.
 from contextlib import closing
 import sys
 
+import track
 import torch
 import torch.multiprocessing as mp
 from torch import optim
 
-from . import log
 from .utils import get_device, disable_contiguous_rnn_warning
-
-# TODO (much later -- try hogwild; don't use any sync whatsoever,
-# just wait until a whole epoch is complete)
 
 
 class SharedGPU:
@@ -35,7 +32,7 @@ class SharedGPU:
         self._workers = [_Worker(self.n, i, model) for i in range(self.n)]
         self._local = None if n else _Remote(model)
         if self._local:
-            log.debug('using a within-process worker')
+            track.debug('using a within-process worker')
 
     def set_mode(self, evaluation=False):
         """set the mode to eval if evaluation, else to train"""
@@ -303,17 +300,6 @@ def _diagnose(model, examples):
     for ex in examples:
         prepared_ex = model.prepare_example(ex)
         ex_diagnostics = model.diagnose(prepared_ex)
-        with torch.no_grad():
-            # TODO get rid of the built-in fmting in diagnose
-            # instead just have a fmt rule in train loss -> 8.4g
-            # and acc -> 8.2%
-            prediction = ex_diagnostics['prediction']
-            del ex_diagnostics['prediction']
-            ex_diagnostics = {
-                k: (v.cpu().detach().numpy(), fmt)
-                for k, (v, fmt) in ex_diagnostics.items()
-            }
-            ex_diagnostics['prediction'] = prediction
         diagnostics.append(ex_diagnostics)
     return diagnostics
 

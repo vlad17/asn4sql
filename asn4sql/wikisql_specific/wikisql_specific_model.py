@@ -294,9 +294,10 @@ class WikiSQLSpecificModel(nn.Module):
         Compute the model loss on the prepared example as well as whether
         the example was perfectly guessed.
         """
-        results = self.diagnose(prepared_ex, with_prediction=False)
-        loss, _ = results['loss (*total)']
-        acc, _ = results['acc (*total)']
+        results = self.diagnose(
+            prepared_ex, with_prediction=False, detach=False)
+        loss = results['loss (*total)']
+        acc = results['acc (*total)']
         return loss, acc
 
     @staticmethod
@@ -323,7 +324,7 @@ class WikiSQLSpecificModel(nn.Module):
         targ = torch.unsqueeze(targ, dim=0)
         return F.cross_entropy(pred, targ)
 
-    def diagnose(self, prepared_ex, with_prediction=True):
+    def diagnose(self, prepared_ex, with_prediction=True, detach=True):
         """
         diagnostic info - returns a dictionary keyed by diagnostic name
         with the value being a tuple of the numerical value of the
@@ -376,16 +377,21 @@ class WikiSQLSpecificModel(nn.Module):
         else:
             prediction = None
 
-        return {
-            'loss (*total)': (cond_loss + agg_loss + sel_loss, '{:8.4g}'),
-            'acc (*total)': (cond_acc * agg_acc * sel_acc, '{:8.2%}'),
-            'acc (cond)': (cond_acc, '{:8.2%}'),
-            'acc (agg)': (agg_acc, '{:8.2%}'),
-            'acc (sel)': (sel_acc, '{:8.2%}'),
-            'acc (cond: op)': (op_acc, '{:8.2%}'),
-            'acc (cond: col)': (col_acc, '{:8.2%}'),
-            'acc (cond: span_l)': (span_l_acc, '{:8.2%}'),
-            'acc (cond: span_r)': (span_r_acc, '{:8.2%}'),
-            'acc (cond: stop)': (stop_acc, '{:8.2%}'),
+        out = {
+            'loss (*total)': cond_loss + agg_loss + sel_loss,
+            'acc (*total)': cond_acc * agg_acc * sel_acc,
+            'acc (cond)': cond_acc,
+            'acc (agg)': agg_acc,
+            'acc (sel)': sel_acc,
+            'acc (cond: op)': op_acc,
+            'acc (cond: col)': col_acc,
+            'acc (cond: span_l)': span_l_acc,
+            'acc (cond: span_r)': span_r_acc,
+            'acc (cond: stop)': stop_acc,
             'prediction': prediction
         }
+        if detach:
+            for k in out:
+                if hasattr(out[k], 'detach'):
+                    out[k] = out[k].detach().cpu().numpy()
+        return out

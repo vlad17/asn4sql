@@ -9,7 +9,6 @@ import random
 from absl import app
 from absl import flags
 
-from asn4sql import log
 from asn4sql import data
 from asn4sql.utils import seed_all, get_device, gpus
 
@@ -19,11 +18,9 @@ flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 
 def _main(argv):
     seed_all(flags.FLAGS.seed)
-    log_subdir = log.flaghash_dirname([argv[0]], ['seed'])
-    log.init(log_subdir)
 
     if flags.FLAGS.toy:
-        log.debug('using toy data subset')
+        print('using toy data subset')
     train, val, test = data.cached_fetch(
         os.path.join(
             'wikisql',
@@ -33,10 +30,10 @@ def _main(argv):
 
 
 def _gen_data():
-    log.debug('downloading and reading pre-annotated wikisql data')
+    print('downloading and reading pre-annotated wikisql data')
     train, val, test = data.wikisql.wikisql(flags.FLAGS.toy)
 
-    log.debug('building vocab')
+    print('building vocab')
     train.build_vocab(None, flags.FLAGS.toy, [val, test])
     return train, val, test
 

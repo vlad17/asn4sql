@@ -10,9 +10,8 @@ import random
 import warnings
 
 import numpy as np
+import track
 import torch
-
-from . import log
 
 
 def _next_seeds(n):
@@ -35,7 +34,7 @@ def _next_seeds(n):
 def seed_all(seed):
     """Seed all devices deterministically off of seed and somewhat
     independently."""
-    log.debug('seeding with seed {}', seed)
+    track.debug('seeding with seed {}', seed)
     np.random.seed(seed)
     rand_seed, torch_cpu_seed, torch_gpu_seed = _next_seeds(3)
     random.seed(rand_seed)

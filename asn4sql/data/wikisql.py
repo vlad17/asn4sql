@@ -54,13 +54,13 @@ import json
 from absl import flags
 import numpy as np
 from tqdm import tqdm
+import track
 import spacy
 from spacy.tokens import Doc
 import torch
 import torchtext.vocab
 
 from .fetch import check_or_fetch
-from .. import log
 from ..dbengine import DBEngine
 
 AGGREGATION = ['', 'MAX', 'MIN', 'COUNT', 'SUM', 'AVG']
@@ -358,7 +358,7 @@ def wikisql(toy):
     wikisql_dir = check_or_fetch('wikisql', 'wikisql.tgz', _URL)
     wikisql_dir = os.path.join(wikisql_dir, 'wikisql')
 
-    log.debug('loading spacy tagger')
+    track.debug('loading spacy tagger')
     _nlp()
 
     train = _load_wikisql_data(
@@ -510,7 +510,7 @@ def _load_wikisql_data(jsonl_path, db_path, toy):
     # weird api for Example.fromdict
     ex_fields = {k: [(k, v)] for k, v in fields.items()}
 
-    log.debug('reading sql data from {}', jsonl_path)
+    track.debug('reading sql data from {}', jsonl_path)
     with open(jsonl_path, 'r') as f:
         query_json = ''
         max_lines = 1000 if toy else _count_lines(jsonl_path)
@@ -528,9 +528,9 @@ def _load_wikisql_data(jsonl_path, db_path, toy):
                 queries.append(ex)
             except _QueryParseException as e:
                 excs.append(e.args[0])
-    log.debug('dropped {} of {} queries{}{}', len(excs),
-              len(excs) + len(queries), ':\n    '
-              if excs else '', '\n    '.join(excs))
+    track.debug('dropped {} of {} queries{}{}', len(excs),
+                len(excs) + len(queries), ':\n    '
+                if excs else '', '\n    '.join(excs))
 
     return TableDataset(queries, fields, db)
 
@@ -641,9 +641,9 @@ def pretrained_vocab(toy):
 # getting the full spacy pipeline through (observe it directly modifies
 # the query json in a single pass, and then a faster parsing step recovers
 # the examples in a later stage)
-# log.debug('reading json data from {}', jsonl_path)
+# track.debug('reading json data from {}', jsonl_path)
 
-# log.debug('  reading json data into memory')
+# track.debug('  reading json data into memory')
 # with open(jsonl_path, 'r') as f:
 #     query_json = ''
 #     max_lines = 1000 if toy else _count_lines(jsonl_path)
@@ -651,7 +651,7 @@ def pretrained_vocab(toy):
 #     for line in tqdm(itertools.islice(f, max_lines), total=max_lines):
 #         query_jsons.append(json.loads(line))
 
-# log.debug('  tagging with spacy entity pipeline')
+# track.debug('  tagging with spacy entity pipeline')
 # nlp = _nlp()
 # words = [detokenize(q['question']['gloss'], q['question']['after'])
 #          for q in query_jsons]
@@ -662,7 +662,7 @@ def pretrained_vocab(toy):
 #     assert len(ent) == len(query_jsons[i]['question']['gloss']), (list(doc),
 #         query_jsons[i]['question']['gloss'])
 
-# log.debug('  parsing json into torchtext fields')
+# track.debug('  parsing json into torchtext fields')
 # excs = []
 # for query_json in tqdm(query_jsons):
 #     try:
@@ -676,6 +676,6 @@ def pretrained_vocab(toy):
 #         queries.append(ex)
 #     except _QueryParseException as e:
 #         excs.append(e.args[0])
-# log.debug('dropped {} of {} queries{}{}', len(excs),
+# track.debug('dropped {} of {} queries{}{}', len(excs),
 #           len(excs) + len(queries), ':\n    '
 #           if excs else '', '\n    '.join(excs))

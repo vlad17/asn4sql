@@ -10,6 +10,7 @@ import os
 
 from absl import app
 from absl import flags
+import track
 import torch
 from tqdm import tqdm
 
@@ -22,12 +23,9 @@ flags.DEFINE_integer('seed', 1, 'random seed')
 flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 
 flags.DEFINE_string(
-    'model', None, 'the checkpoint file which should contain '
-    "a dictionary with a 'model' key. We assume that the "
-    'parent directory of the model file contains a persisted '
-    'pytorch module called untrained_model.pth which can be '
-    'updated with the model parameters')
-flags.mark_flag_as_required('model')
+    'trial', None, 'the uuid of the track.Trial whose best checkpoint '
+    'should be evaluated')
+flags.mark_flag_as_required('trial')
 flags.DEFINE_integer(
     'batch_size', 512, 'batch size for evaluation. This is '
     'the batch size used on each of the individual workers.')
@@ -49,15 +47,16 @@ def _main(_):
         flags.FLAGS.dataroot, 'wikisql',
         'processed-toy{}.pth'.format(1 if flags.FLAGS.toy else 0))
     print('loading data from {}'.format(dataset_file))
-    train, val, test = torch.load(dataset_file)
+    _train, _val, test = torch.load(dataset_file)
 
-    model_file = flags.FLAGS.model
-    initial_model = os.path.join(
-        os.path.dirname(os.path.dirname(model_file)), 'untrained_model.pth')
+    proj = track.Project()
+    initial_model_file = proj.fetch_artifact(flags.FLAGS.trial,
+                                             'untrained_model.pth')
+    model_file = proj.fetch_artifact(flags.FLAGS.trial, 'checkpoints/best.pth')
 
-    print('loading initial model from {}'.format(initial_model))
+    print('loading initial model from {}'.format(initial_model_file))
     disable_source_code_warning()
-    model = torch.load(initial_model)
+    model = torch.load(initial_model_file)
     model = model.to(get_device())
 
     print('loading model parameters from {}'.format(model_file))
@@ -90,10 +89,10 @@ def _do_evaluation(dataset_name, dataset, shared):
     for exs in chunkify(tqdm(dataset), batch_size):
         diagnostics = shared.diagnose(exs)
         for true_ex, result_ex in zip(exs, diagnostics):
-            agg_match = result_ex['acc (agg)'][0]
+            agg_match = result_ex['acc (agg)']
             sum_diagnostics['agg match'] += agg_match
 
-            sel_match = result_ex['acc (sel)'][0]
+            sel_match = result_ex['acc (sel)']
             sum_diagnostics['sel match'] += sel_match
 
             prediction = result_ex['prediction']
@@ -103,8 +102,8 @@ def _do_evaluation(dataset_name, dataset, shared):
             logical_match = agg_match and sel_match and logical_cond_match
             sum_diagnostics['logical match'] += logical_match
 
-            sum_diagnostics['cond exact match'] += result_ex['acc (cond)'][0]
-            exact_match = result_ex['acc (*total)'][0]
+            sum_diagnostics['cond exact match'] += result_ex['acc (cond)']
+            exact_match = result_ex['acc (*total)']
             sum_diagnostics['exact match'] += exact_match
 
             pred_ex = prediction.as_query_example(true_ex)
