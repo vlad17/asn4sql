@@ -66,7 +66,7 @@ def _main(_):
 
     num_workers = flags.FLAGS.workers
     print('initializing {} workers'.format(num_workers))
-    with closing(SharedGPU(model, num_workers)) as shared:
+    with closing(SharedGPU(None, model, num_workers)) as shared:
         shared.set_mode(evaluation=True)
         print('all {} remote workers initialized'.format(num_workers))
         _do_evaluation('test', test, shared)

@@ -41,11 +41,11 @@ main() {
     cmds+=("rm -rf ./data/wikisql/processed-toy1.pth")
     cmds+=("python asn4sql/main/preprocess_data.py --seed 1 --toy")
     cmds+=("test -f ./data/wikisql/processed-toy1.pth")
-    cmds+=("rm -rf ~/track/asn4sql/test_*")
-    cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 1 --max_epochs 1 --seed 3 --workers 1 --batch_size 4 --trial_prefix test_")
-    cmds+=("python asn4sql/main/wikisql_specific.py --toy --max_epochs 1 --seed 3 --persist_every 0 --workers 0 --batch_size 4 --restore_checkpoint $HOME/track/asn4sql/test_*/checkpoints/1.pth")
-    cmds+=("test -f $HOME/track/asn4sql/test_*/checkpoints/best.pth")
-    cmds+=('python asn4sql/main/test_wikisql.py --toy --trial $(basename $HOME/track/asn4sql/test_*)')
+    cmds+=("rm -rf ~/track/asn4sql/test_* ~/track/asn4sql/trials/test_*")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 1 --max_epochs 1 --seed 3 --workers 1 --batch_size 4 --trial_prefix test_1")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --max_epochs 1 --seed 3 --persist_every 0 --workers 0 --batch_size 4 --restore_checkpoint $HOME/track/asn4sql/test_1*/checkpoints/1.pth --trial_prefix test_2")
+    cmds+=("test -f $HOME/track/asn4sql/test_2*/checkpoints/best.pth")
+    cmds+=('python asn4sql/main/test_wikisql.py --workers 0 --toy --trial $(basename $HOME/track/asn4sql/test_*)')
 
     for cmd in "${cmds[@]}"; do
         box "${cmd}"

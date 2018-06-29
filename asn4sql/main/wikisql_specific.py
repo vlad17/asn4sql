@@ -16,6 +16,7 @@ from absl import app
 from absl import flags
 import track
 import torch
+from torch import optim
 import torch.utils
 from tqdm import tqdm
 import numpy as np
@@ -58,6 +59,8 @@ flags.DEFINE_float(
     'lr_decay_rate', 0.5, 'decay rate for learning rate, '
     'used when validation loss stops improving')
 flags.DEFINE_float('min_lr', 1e-5, 'stop training when lr gets this low')
+flags.DEFINE_enum('optimizer', 'sgd', ['sgd', 'adam'],
+                  'optimization algorithm')
 
 
 def _main(_):
@@ -90,17 +93,23 @@ def _main(_):
             _copy_best_checkpoint(flags.FLAGS.restore_checkpoint)
             _load_checkpoint(flags.FLAGS.restore_checkpoint, model,
                              training_state)
-        model = model.share_memory()
+        params_to_optimize = [p for p in model.parameters() if p.requires_grad]
+        if flags.FLAGS.optimizer == 'sgd':
+            # lr required here but will be set in _do_training
+            optimizer = optim.SGD(params_to_optimize, lr=1)
+        elif flags.FLAGS.optimizer == 'adam':
+            optimizer = optim.Adam(params_to_optimize)
+        else:
+            raise ValueError('unrecognized optimizer {}'.format(
+                flags.FLAGS.optimizer))
 
         num_workers = flags.FLAGS.workers
         track.debug('initializing {} workers', num_workers)
-        with closing(SharedGPU(model, num_workers)) as shared:
-            shared.zero_grad()
-            track.debug('all {} remote workers initialized', num_workers)
-            _do_training(model, train, val, shared, training_state)
+        with closing(SharedGPU(optimizer, model, num_workers)) as shared:
+            _do_training(train, val, shared, training_state)
 
 
-def _do_training(model, train, val, shared, training_state):
+def _do_training(train, val, shared, training_state):
     batch_size = flags.FLAGS.batch_size
 
     loss_window = RollingAverageWindow(len(train) // 10 // batch_size)
@@ -128,11 +137,12 @@ def _do_training(model, train, val, shared, training_state):
         samples = (train[i] for i in perm)
         with tqdm(total=len(train), postfix=_tqdm_postfix()) as progbar:
             for exs in chunkify(samples, batch_size):
+                shared.zero_grad()
                 loss, acc, gradnorm = shared.train(exs)
                 loss_window.update(loss)
                 acc_window.update(acc)
                 grad_window.update(gradnorm)
-                shared.step()  # auto-zeros grad
+                shared.step()
                 progbar.update(len(exs))
                 progbar.set_postfix(**_tqdm_postfix())
 
@@ -162,7 +172,7 @@ def _do_training(model, train, val, shared, training_state):
             training_state.best_val_loss = cur_val_loss
             best_file = _checkpoint_file('best.pth')
             track.debug('updating best model into file {}', best_file)
-            _save_checkpoint(best_file, model, training_state)
+            _save_checkpoint(best_file, shared.model, training_state)
         else:
             training_state.patience -= 1
             track.debug('val loss not improving; dropping patience')
@@ -187,7 +197,7 @@ def _do_training(model, train, val, shared, training_state):
             epochfmt = intfmt(flags.FLAGS.max_epochs, fill='0')
             checkpoint_file = _checkpoint_file(epochfmt.format(epoch) + '.pth')
             track.debug('persisting model to {}', checkpoint_file)
-            _save_checkpoint(checkpoint_file, model, training_state)
+            _save_checkpoint(checkpoint_file, shared.model, training_state)
 
         if early_stop:
             break
@@ -240,8 +250,7 @@ def _check_period(idx, period):
 
 
 def _checkpoint_file(basename):
-    checkpoint_file = os.path.join(track.trial_dir(), 'checkpoints',
-                                   basename)
+    checkpoint_file = os.path.join(track.trial_dir(), 'checkpoints', basename)
     return checkpoint_file
 
 
