@@ -106,10 +106,7 @@ class DBEngine:
             if schema[col] == 'text':
                 v = "'{}'".format(v)
             query_str = query_str.replace(':' + k, str(v))
-        cols = ' '.join(ex.tbl).split(data.wikisql.SPLIT_WORD)
-        if cols and not cols[-1]:  # remove trailing split
-            cols.pop()
-        for i, col_desc in enumerate(s.strip() for s in cols):
+        for i, col_desc in enumerate(s.strip() for s in ex.tbl_original):
             colname = col_desc
             contains_punctuation = any(
                 p in colname for p in string.punctuation)

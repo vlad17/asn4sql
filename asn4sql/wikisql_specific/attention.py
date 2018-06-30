@@ -18,7 +18,7 @@ class Attention(nn.Module):
         super().__init__()
         self.pointer = Pointer(sequence_size, context_size)
 
-    def forward(self, seq_se, context_c):
+    def forward(self, seq_se, context_c=None):
         """
         s = sequence length
         e = sequence embedding size

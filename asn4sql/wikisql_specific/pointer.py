@@ -9,6 +9,8 @@ attention values that are then directly used as logits
 over the sequence itself.
 """
 
+import math
+
 from absl import flags
 import torch
 from torch import nn
@@ -27,10 +29,16 @@ class Pointer(nn.Module):
 
     def __init__(self, sequence_size, context_size):
         super().__init__()
-        self.inner = nn.Linear(context_size, sequence_size, bias=False)
+        self.context_size = context_size
+        if not context_size:
+            self.weights = nn.parameter.Parameter(torch.Tensor(sequence_size))
+            stdv = 1. / math.sqrt(sequence_size)
+            self.weights.data.uniform_(-stdv, stdv)
+        else:
+            self.inner = nn.Linear(context_size, sequence_size, bias=False)
         self.normalized_attention = flags.FLAGS.normalized_attention
 
-    def forward(self, seq_se, context_c):
+    def forward(self, seq_se, context_c=None):
         """
         s = sequence length
         e = sequence embedding size
@@ -41,7 +49,10 @@ class Pointer(nn.Module):
 
         returns logits over seq_se as a vector of length s
         """
-        attn_weights_e = self.inner(context_c)
+        if self.context_size:
+            attn_weights_e = self.inner(context_c)
+        else:
+            attn_weights_e = self.weights
         # two random symmetric unit vectors will have dot product magnitude
         # 1/dim in expectation (compute w/ a trace trick). Therefore,
         # we normalize embeddings (similar to scaled dot-product attn in

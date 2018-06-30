@@ -70,7 +70,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from .mlp import MLP
-from .attention import Attention
+from .double_attention import double_attention
 from .nl_embedding import NLEmbedding
 from .column_encoding import ColumnEncoding
 from .question_encoding import QuestionEncoding
@@ -116,26 +116,28 @@ class WikiSQLSpecificModel(nn.Module):
         self.column_encoding_for_cond = ColumnEncoding(
             natural_language_embedding, tbl_field)
 
-        self.agg_attention = Attention(
+        self.agg_attention = double_attention(
             self.column_encoding_for_agg.sequence_size,
-            self.question_encoding_for_agg.final_size)
-        self.cond_attention = Attention(
+            self.question_encoding_for_agg.sequence_size, 0)
+        self.sel_attention = double_attention(
             self.column_encoding_for_cond.sequence_size,
-            self.question_encoding_for_cond.final_size)
+            self.question_encoding_for_cond.sequence_size, 0)
+        self.cond_attention = double_attention(
+            self.column_encoding_for_cond.sequence_size,
+            self.question_encoding_for_cond.sequence_size, 0)
 
         joint_embedding_size = (self.column_encoding_for_agg.sequence_size +
-                                self.question_encoding_for_agg.final_size)
+                                self.question_encoding_for_agg.sequence_size)
         self.aggregation_mlp = MLP(joint_embedding_size,
                                    [flags.FLAGS.aggregation_hidden] * 2,
                                    len(wikisql.AGGREGATION))
         self.selection_ptrnet = Pointer(
-            self.column_encoding_for_sel.sequence_size,
-            self.question_encoding_for_sel.final_size)
+            self.column_encoding_for_sel.sequence_size, joint_embedding_size)
         self.decoder_initialization_mlp = MLP(joint_embedding_size, [],
                                               flags.FLAGS.decoder_size)
         self.condition_decoder = ConditionDecoder(
             self.column_encoding_for_cond.sequence_size,
-            self.question_encoding_for_cond.final_size)
+            self.question_encoding_for_cond.sequence_size)
 
     def prepare_example(self, ex):
         """
@@ -197,45 +199,35 @@ class WikiSQLSpecificModel(nn.Module):
         # w = _MAX_COND_LENGTH
 
         # aggregation prediction
-        _, final_question_encoding_for_agg_e = self.question_encoding_for_agg(
+        sequence_question_encoding_for_agg_qe = self.question_encoding_for_agg(
             prepared_ex['src'], prepared_ex['ent'])
         sequence_column_encoding_for_agg_ce = self.column_encoding_for_agg(
             prepared_ex['tbl'])
-        final_column_encoding_for_agg_e = self.agg_attention(
-            sequence_column_encoding_for_agg_ce,
-            final_question_encoding_for_agg_e)
         joint_encoding_for_agg_e = torch.cat(
-            [
-                final_question_encoding_for_agg_e,
-                final_column_encoding_for_agg_e
-            ],
-            dim=0)
+            self.agg_attention(sequence_column_encoding_for_agg_ce,
+                               sequence_question_encoding_for_agg_qe))
         aggregation_logits_a = self.aggregation_mlp(joint_encoding_for_agg_e)
 
         # selection prediction
-        _, final_question_encoding_for_sel_e = self.question_encoding_for_sel(
+        sequence_question_encoding_for_sel_qe = self.question_encoding_for_sel(
             prepared_ex['src'], prepared_ex['ent'])
         sequence_column_encoding_for_sel_ce = self.column_encoding_for_sel(
             prepared_ex['tbl'])
+        joint_encoding_for_sel_e = torch.cat(
+            self.sel_attention(sequence_column_encoding_for_sel_ce,
+                               sequence_question_encoding_for_sel_qe))
         selection_logits_c = self.selection_ptrnet(
-            sequence_column_encoding_for_sel_ce,
-            final_question_encoding_for_sel_e)
+            sequence_column_encoding_for_sel_ce, joint_encoding_for_sel_e)
 
         # condition (decoding) prediction
-        (sequence_question_encoding_for_cond_qe,
-         final_question_encoding_for_cond_e) = self.question_encoding_for_cond(
-             prepared_ex['src'], prepared_ex['ent'])
+        sequence_question_encoding_for_cond_qe = (
+            self.question_encoding_for_cond(prepared_ex['src'],
+                                            prepared_ex['ent']))
         sequence_column_encoding_for_cond_ce = self.column_encoding_for_sel(
             prepared_ex['tbl'])
-        final_column_encoding_for_cond_e = self.cond_attention(
-            sequence_column_encoding_for_cond_ce,
-            final_question_encoding_for_cond_e)
         joint_encoding_for_cond_e = torch.cat(
-            [
-                final_question_encoding_for_cond_e,
-                final_column_encoding_for_cond_e
-            ],
-            dim=0)
+            self.cond_attention(sequence_column_encoding_for_cond_ce,
+                                sequence_question_encoding_for_cond_qe))
         initial_decoder_state = self.decoder_initialization_mlp(
             joint_encoding_for_cond_e)
         initial_decoder_state = self.condition_decoder.create_initial_state(

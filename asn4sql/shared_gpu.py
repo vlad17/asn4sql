@@ -75,6 +75,9 @@ class SharedGPU:
     def zero_grad(self):
         """zero out the current grad"""
         self._cat_grad.zero_()
+        if self._local:
+            for p in self.model.parameters():
+                p.grad = None
 
     def step(self):
         """update the model according to the current grad"""

@@ -222,6 +222,25 @@ def _wikisql_data_readers(db):
     fields['tbl'] = field_tbl
     validators['tbl'] = _validate_tbl
 
+    def _parse_tbl_original(query_json):
+        flat_cols = []
+        for col_desc in query_json['table']['header']:
+            original = col_desc['gloss']
+            after = col_desc['after']
+            colname = ''.join(o + a for o, a in zip(original, after))
+            flat_cols.append(colname)
+        return flat_cols
+
+    field_tbl_original = torchtext.data.Field(
+        batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
+
+    def _validate_tbl_original(_query_json, _ex):
+        pass
+
+    parsers['tbl_original'] = _parse_tbl_original
+    fields['tbl_original'] = field_tbl_original
+    validators['tbl_original'] = _validate_tbl_original
+
     # cond_op is the list of the conditional operation indices (unlike lay,
     # which is the concatenation of their string values)
     # note since it's a numerical sequence it has a -1 pad token.

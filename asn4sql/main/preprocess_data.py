@@ -10,13 +10,13 @@ from absl import app
 from absl import flags
 
 from asn4sql import data
-from asn4sql.utils import seed_all, get_device, gpus
+from asn4sql.utils import seed_all
 
 flags.DEFINE_integer('seed', 1, 'random seed')
 flags.DEFINE_boolean('toy', False, 'use a toy dataset for debugging')
 
 
-def _main(argv):
+def _main(_argv):
     seed_all(flags.FLAGS.seed)
 
     if flags.FLAGS.toy:

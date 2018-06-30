@@ -12,15 +12,13 @@ from torch.nn import functional as F
 
 from .mlp import MLP
 from .pointer import Pointer
-from . import double_attention
+from .double_attention import double_attention
 from ..data import wikisql
 from ..utils import get_device
 
 flags.DEFINE_integer('decoder_size', 128, 'hidden state size for the decoder')
 flags.DEFINE_integer('op_embedding_size', 16,
                      'embedding size for conditional operators')
-flags.DEFINE_enum('multi_attn', 'double', ['double', 'symm', 'outer'],
-                  'multi-sequence attention type')
 
 
 class ConditionDecoder(nn.Module):
@@ -50,17 +48,8 @@ class ConditionDecoder(nn.Module):
         num_words = len(wikisql.CONDITIONAL)
         self.op_embedding = nn.Embedding(num_words,
                                          flags.FLAGS.op_embedding_size)
-        if flags.FLAGS.multi_attn == 'double':
-            double_attn = double_attention.DoubleAttention
-        elif flags.FLAGS.multi_attn == 'symm':
-            double_attn = double_attention.SymmetricDoubleAttention
-        elif flags.FLAGS.multi_attn == 'outer':
-            double_attn = double_attention.OuterAttention
-        else:
-            raise ValueError('unsupported multi attention {}'
-                             .format(flags.FLAGS.multi_attn))
-        self.src_col_attn = double_attn(src_seq_size, col_seq_size,
-                                        flags.FLAGS.decoder_size)
+        self.src_col_attn = double_attention(src_seq_size, col_seq_size,
+                                             flags.FLAGS.decoder_size)
 
         input_size = flags.FLAGS.decoder_size
         self.stop_logits = MLP(input_size, [], 2)

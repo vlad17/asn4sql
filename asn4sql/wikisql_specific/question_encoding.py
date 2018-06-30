@@ -11,9 +11,6 @@ flags.DEFINE_integer(
     'sequence_question_encoding_size', 64,
     'hidden state size for the question sequential '
     'encoding; this should be even')
-flags.DEFINE_integer(
-    'question_encoding_size', 64, 'hidden state size for the whole-table '
-    'question encoding')
 flags.DEFINE_integer('ent_embedding_size', 32,
                      'embedding size for part-of-speech tags')
 
@@ -31,9 +28,7 @@ class QuestionEncoding(nn.Module):
     Requires a pre-generated src encoding as input and the torchtext
     field for the part-of-speech encoding, which is learned from scratch.
 
-    The sequence encoding size is in the sequence_size member,
-    whereas final_size describes the encoding size for the final
-    whole-question summary.
+    The sequence encoding size is in the sequence_size member.
     """
 
     def __init__(self, src_embedding, ent_field):
@@ -44,7 +39,6 @@ class QuestionEncoding(nn.Module):
                                           flags.FLAGS.ent_embedding_size)
 
         self.sequence_size = flags.FLAGS.sequence_question_encoding_size
-        self.final_size = flags.FLAGS.question_encoding_size
 
         assert self.sequence_size % 2 == 0, self.sequence_size
 
@@ -67,7 +61,6 @@ class QuestionEncoding(nn.Module):
         ent_seq_se = self.ent_embedding(ent_seq_s)
 
         question_seq_se = torch.cat([src_seq_se, ent_seq_se], dim=1)
-        output_seq_s1e, (hidden_21e, _) = self.lstm(
-            question_seq_se.unsqueeze(1))
+        output_seq_s1e, _ = self.lstm(question_seq_se.unsqueeze(1))
         output_seq_se = output_seq_s1e.squeeze(1)
-        return output_seq_se, hidden_21e.view(-1)
+        return output_seq_se
