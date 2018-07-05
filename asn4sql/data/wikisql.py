@@ -50,13 +50,16 @@ import os
 import itertools
 import functools
 import json
+import multiprocessing as mp
+import locale
 
 from absl import flags
+from dateutil.parser import parse as dateparser
 import numpy as np
 from tqdm import tqdm
 import track
 import spacy
-from spacy.tokens import Doc
+import textacy
 import torch
 import torchtext.vocab
 
@@ -68,7 +71,18 @@ CONDITIONAL = ['=', '>', '<']
 SPLIT_WORD = '<|>'
 PAD_WORD = '<pad>'
 UNK_WORD = '<unk>'
-SPECIALS = [UNK_WORD, SPLIT_WORD, PAD_WORD]
+SOME_INT_WORD = '<int>'
+SOME_FLOAT_WORD = '<float>'
+SOME_URL_WORD = '<url>'
+SOME_EMAIL_WORD = '<email>'
+SOME_DATE_WORD = '<int>'
+SOME_NUMPREFIX_WORD = '<numprefix>'
+SPECIALS = [
+    UNK_WORD, SPLIT_WORD, PAD_WORD, SOME_INT_WORD, SOME_URL_WORD,
+    SOME_EMAIL_WORD, SOME_DATE_WORD, SOME_NUMPREFIX_WORD
+]
+
+locale.setlocale(locale.LC_ALL, 'en_US.UTF8')  # USA USA USA
 
 
 def _wikisql_data_readers(db):
@@ -80,7 +94,7 @@ def _wikisql_data_readers(db):
     See inline comments for a description of each column,
 
     src, ent, sel, table_id, tbl, cond_op, cond_col, cond_span_l,
-    cond_span_r, original, after, agg
+    cond_span_r, original, after, agg, tbl_original
 
     Returns the dicitionary keyed by column name for the
     torchtext fields, parsers (query json -> parsed data), and
@@ -93,7 +107,7 @@ def _wikisql_data_readers(db):
     # src is a sequence of StanfordCoreNLP-tokenized lowercased words for the
     # natural language question being asked in the dataset
     def _parse_src(query_json):
-        return query_json['question']['words']
+        return query_json['question']['tok']
 
     field_src = torchtext.data.Field(
         batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
@@ -107,15 +121,9 @@ def _wikisql_data_readers(db):
 
     # ent is a sequence of strings from a small vocab corresponding to src
     # strings in the same sequence index which identify the part of speech
-    nlp = _nlp()
 
     def _parse_ent(query_json):
-        word_list = query_json['question']['gloss']
-        space_list = [s.isspace() for s in query_json['question']['after']]
-        doc = Doc(nlp.vocab, words=word_list, spaces=space_list)
-        for _, proc in nlp.pipeline:
-            doc = proc(doc)
-        return [tok.tag_ for tok in doc]
+        return query_json['question']['ent']
 
     field_ent = torchtext.data.Field(
         batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
@@ -193,6 +201,27 @@ def _wikisql_data_readers(db):
     fields['table_id'] = field_table_id
     validators['table_id'] = _validate_table_id
 
+    # tbl_original is the list of full column descriptions, which may
+    # consist of multiple tokens
+    def _parse_tbl_original(query_json):
+        flat_cols = []
+        for col_desc in query_json['table']['header']:
+            original = col_desc['gloss']
+            after = col_desc['after']
+            colname = detokenize(original, after, drop_last=True)
+            flat_cols.append(colname)
+        return flat_cols
+
+    field_tbl_original = torchtext.data.Field(
+        batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
+
+    def _validate_tbl_original(_query_json, _ex):
+        pass
+
+    parsers['tbl_original'] = _parse_tbl_original
+    fields['tbl_original'] = field_tbl_original
+    validators['tbl_original'] = _validate_tbl_original
+
     # tbl gives the multi-word column descriptions for the columns
     # in the schema, which are separated by the SPLIT_WORD; the descriptions
     # are tokenized and lowercased with StanfordCoreNLP
@@ -221,25 +250,6 @@ def _wikisql_data_readers(db):
     parsers['tbl'] = _parse_tbl
     fields['tbl'] = field_tbl
     validators['tbl'] = _validate_tbl
-
-    def _parse_tbl_original(query_json):
-        flat_cols = []
-        for col_desc in query_json['table']['header']:
-            original = col_desc['gloss']
-            after = col_desc['after']
-            colname = ''.join(o + a for o, a in zip(original, after))
-            flat_cols.append(colname)
-        return flat_cols
-
-    field_tbl_original = torchtext.data.Field(
-        batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
-
-    def _validate_tbl_original(_query_json, _ex):
-        pass
-
-    parsers['tbl_original'] = _parse_tbl_original
-    fields['tbl_original'] = field_tbl_original
-    validators['tbl_original'] = _validate_tbl_original
 
     # cond_op is the list of the conditional operation indices (unlike lay,
     # which is the concatenation of their string values)
@@ -312,9 +322,9 @@ def _wikisql_data_readers(db):
     validators['cond_span_r'] = _validate_cond_span_r
 
     # original is a sequence of strings from a corresponding to src
-    # strings that are unprocessed.
+    # strings that are unprocessed
     def _parse_original(query_json):
-        return query_json['question']['gloss']
+        return query_json['question']['original']
 
     field_original = torchtext.data.Field(
         batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
@@ -327,37 +337,6 @@ def _wikisql_data_readers(db):
     parsers['original'] = _parse_original
     fields['original'] = field_original
     validators['original'] = _validate_original
-
-    # after is a sequence of strings from a corresponding to src
-    # strings that are the unprocessed whitespace going after the strings
-    # in 'after' to recover the original query.
-    def _parse_after(query_json):
-        return query_json['question']['after']
-
-    field_after = torchtext.data.Field(
-        batch_first=True, tokenize=_tokenize, pad_token=PAD_WORD)
-
-    def _validate_after(query_json, ex):
-        if len(ex.src) != len(ex.after):
-            raise _QueryParseException('src length {} != after length {}'
-                                       .format(len(ex.src), len(ex.after)))
-        for (_, _, literal), start, end in zip(query_json['query']['conds'],
-                                               ex.cond_span_l, ex.cond_span_r):
-            # weird wikisql standard is to lowercase query literals
-            cond_lit_str = detokenize(literal['gloss'], literal['after'])
-            cond_lit_str = cond_lit_str.lower()
-            reconstruct_lit_str = detokenize(
-                ex.original[start:end], ex.after[start:end], drop_last=True)
-            reconstruct_lit_str = reconstruct_lit_str.lower()
-            if reconstruct_lit_str != cond_lit_str:
-                raise _QueryParseException(
-                    'expected query literal "{}" to be the same when '
-                    'reconstructed from the question "{}"'.format(
-                        cond_lit_str, reconstruct_lit_str))
-
-    parsers['after'] = _parse_after
-    fields['after'] = field_after
-    validators['after'] = _validate_after
 
     return parsers, fields, validators
 
@@ -379,6 +358,8 @@ def wikisql(toy):
 
     track.debug('loading spacy tagger')
     _nlp()
+    track.debug('loading vocabulary')
+    pretrained_vocab(toy)
 
     train = _load_wikisql_data(
         os.path.join(wikisql_dir, 'annotated', 'train.jsonl'),
@@ -462,7 +443,7 @@ class TableDataset(torchtext.data.Dataset):
     @staticmethod
     def question(ex):
         """Print the question associated with a query"""
-        return ''.join(o + a for o, a in zip(ex.original, ex.after))
+        return ''.join(ex.original)
 
     def build_vocab(self, max_size, toy, other_datasets):
         """
@@ -529,24 +510,19 @@ def _load_wikisql_data(jsonl_path, db_path, toy):
     # weird api for Example.fromdict
     ex_fields = {k: [(k, v)] for k, v in fields.items()}
 
-    track.debug('reading sql data from {}', jsonl_path)
-    with open(jsonl_path, 'r') as f:
-        query_json = ''
-        max_lines = 1000 if toy else _count_lines(jsonl_path)
-        excs = []
-        for line in tqdm(itertools.islice(f, max_lines), total=max_lines):
-            try:
-                query_json = json.loads(line)
-                parsed_fields = {
-                    k: parse(query_json)
-                    for k, parse in parsers.items()
-                }
-                ex = torchtext.data.Example.fromdict(parsed_fields, ex_fields)
-                for v in validators.values():
-                    v(query_json, ex)
-                queries.append(ex)
-            except _QueryParseException as e:
-                excs.append(e.args[0])
+    excs = []
+    for query_json in _annotate_queries(jsonl_path, toy):
+        try:
+            parsed_fields = {
+                k: parse(query_json)
+                for k, parse in parsers.items()
+            }
+            ex = torchtext.data.Example.fromdict(parsed_fields, ex_fields)
+            for v in validators.values():
+                v(query_json, ex)
+            queries.append(ex)
+        except _QueryParseException as e:
+            excs.append(e.args[0])
     track.debug('dropped {} of {} queries{}{}', len(excs),
                 len(excs) + len(queries), ':\n    '
                 if excs else '', '\n    '.join(excs))
@@ -555,14 +531,31 @@ def _load_wikisql_data(jsonl_path, db_path, toy):
 
 
 def _find_sublist(haystack, needle):
-    # my algs prof can bite me
-    start, end = -1, -1
-    for i in range(len(haystack)):
-        end = i + len(needle)
-        if needle == haystack[i:end]:
-            start = i
-            break
-    return start, end
+    # the haystack is a list of tokens, needle is a string that should span
+    # the tokens
+    starts = np.roll(np.cumsum(list(map(len, haystack))), 1)
+    starts = np.append(starts, starts[0])
+    starts[0] = 0
+    cat_haystack = ''.join(haystack)
+    # we might get a match that doesn't correspond to a token
+    begin = 0
+    while begin < len(cat_haystack):
+        start = cat_haystack.find(needle, begin)
+        if start < 0:
+            return -1, -1
+        if start not in starts:
+            begin = start + len(needle)
+            continue
+        start_idx = np.where(start == starts)[0][0]
+        end_idx = start_idx + 1
+        while needle not in ''.join(haystack[start_idx:end_idx]):
+            end_idx += 1
+            assert end_idx <= len(haystack), (start_idx, end_idx, haystack,
+                                              needle)
+        if needle.strip() == ''.join(haystack[start_idx:end_idx]).strip():
+            return start_idx, end_idx
+        begin = starts[end_idx]
+    return -1, -1
 
 
 class _QueryParseException(Exception):
@@ -577,14 +570,16 @@ def _nlp():
 def _parse_span(query_json):
     conds = []
     question = query_json['question']
-    question_tokens = question['words']
+    # wikisql-specific weirdness: everything is lowercase
+    question_tokens = [x.lower() for x in question['original']]
     for _, _, literal in query_json['query']['conds']:
-        cond_lit_toks = literal['words']
-        start, end = _find_sublist(question_tokens, cond_lit_toks)
+        cond_lit = ''.join(o.lower() + a.lower()
+                           for o, a in zip(literal['gloss'], literal['after']))
+        start, end = _find_sublist(question_tokens, cond_lit)
         if start < 0:
             raise _QueryParseException(
-                'expected literal tokens {} to appear in question {}'.format(
-                    cond_lit_toks, question_tokens))
+                'expected literal {} to appear in question {}'.format(
+                    cond_lit, question_tokens))
         conds.append((start, end))
     return conds
 
@@ -638,9 +633,11 @@ torchtext.vocab.Vocab.__getstate__ = _vocab_get
 torchtext.vocab.Vocab.__setstate__ = _vocab_set
 
 
+@functools.lru_cache(maxsize=None)
 def pretrained_vocab(toy):
     """fetches a small or large pretrained vocabulary"""
     # glove init magnitude based on http://anie.me/On-Torchtext/
+    # TODO try 0 init for unk here
     if toy:
         pretrained = torchtext.vocab.GloVe(
             name='6B',
@@ -656,45 +653,103 @@ def pretrained_vocab(toy):
     return pretrained
 
 
-# When using spacy tokenization, the following should be a better way of
-# getting the full spacy pipeline through (observe it directly modifies
-# the query json in a single pass, and then a faster parsing step recovers
-# the examples in a later stage)
-# track.debug('reading json data from {}', jsonl_path)
+def _annotate_queries(jsonl_path, toy):
+    # read all json in and annotate with a spacy tagger in a single pass
+    # we also use this opportunity to re-tokenize with a spacy tokenizer.
+    track.debug('reading json data from {}', jsonl_path)
 
-# track.debug('  reading json data into memory')
-# with open(jsonl_path, 'r') as f:
-#     query_json = ''
-#     max_lines = 1000 if toy else _count_lines(jsonl_path)
-#     query_jsons = []
-#     for line in tqdm(itertools.islice(f, max_lines), total=max_lines):
-#         query_jsons.append(json.loads(line))
+    track.debug('  reading json data into memory')
+    with open(jsonl_path, 'r') as f:
+        max_lines = 1000 if toy else _count_lines(jsonl_path)
+        query_jsons = []
+        for line in tqdm(itertools.islice(f, max_lines), total=max_lines):
+            query_jsons.append(json.loads(line))
 
-# track.debug('  tagging with spacy entity pipeline')
-# nlp = _nlp()
-# words = [detokenize(q['question']['gloss'], q['question']['after'])
-#          for q in query_jsons]
-# pipeline = nlp.pipe(words, batch_size=128, n_threads=_n_procs())
-# for i, doc in enumerate(tqdm(pipeline, total=len(words))):
-#     ent = [tok.tag_ for tok in doc]
-#     query_jsons[i]['question']['ent'] = ent
-#     assert len(ent) == len(query_jsons[i]['question']['gloss']), (list(doc),
-#         query_jsons[i]['question']['gloss'])
+    nlp = _nlp()
+    track.debug('  parsing json into dataset')
 
-# track.debug('  parsing json into torchtext fields')
-# excs = []
-# for query_json in tqdm(query_jsons):
-#     try:
-#         parsed_fields = {
-#             k: parse(query_json)
-#             for k, parse in parsers.items()
-#         }
-#         ex = torchtext.data.Example.fromdict(parsed_fields, ex_fields)
-#         for v in validators.values():
-#             v(query_json, ex)
-#         queries.append(ex)
-#     except _QueryParseException as e:
-#         excs.append(e.args[0])
-# track.debug('dropped {} of {} queries{}{}', len(excs),
-#           len(excs) + len(queries), ':\n    '
-#           if excs else '', '\n    '.join(excs))
+    words = (detokenize(q['question']['gloss'], q['question']['after'])
+             for q in query_jsons)
+    pipeline = nlp.pipe(words, batch_size=512, n_threads=_n_procs())
+    for i, doc in enumerate(tqdm(pipeline, total=len(query_jsons))):
+        ent = [tok.tag_ for tok in doc]
+        tok = [_process_token(tok.lemma_, toy) for tok in doc]
+        original = [tok.text_with_ws for tok in doc]
+        query_jsons[i]['question'] = {}
+        query_jsons[i]['question']['ent'] = ent
+        query_jsons[i]['question']['tok'] = tok
+        query_jsons[i]['question']['original'] = original
+        yield query_jsons[i]
+
+
+def _n_procs():
+    try:
+        return mp.cpu_count()
+    except NotImplementedError:
+        return 1
+
+
+def _process_token(tok, toy):  # pylint: disable=too-many-return-statements
+    vocab = pretrained_vocab(toy).stoi
+    # TODO train these special separately, perhaps?
+    # TODO or maybe give them good approximate nearby in-glove meanings
+    # like SOME_NUMBER can literally be 'number' -> not the best edge case
+    # but easy to impl
+    if tok in vocab:
+        return tok
+
+    # we don't use textacy's preprocess_text since we have
+    # different outcomes when the token matches a certain pattern
+    tok = textacy.preprocess.fix_bad_unicode(tok)
+    tok = textacy.preprocess.transliterate_unicode(tok)
+
+    if tok in vocab:
+        return tok
+
+    # We consider a couple special cases to reduce simple OOV tokens
+    # since the data is pretty unclean, to be honest. These are rough
+    # regexes and they only check for a prefix match but they do simplify
+    # the vocabulary that the model has to handle quite a bit. Note that some
+    # common patterns like '1' might match these regexes but are already in
+    # glove with a well-trained embedding.
+
+    if _exact_match(textacy.constants.URL_REGEX, tok):
+        return SOME_URL_WORD
+
+    if _exact_match(textacy.constants.EMAIL_REGEX, tok):
+        return SOME_EMAIL_WORD
+
+    try:
+        dateparser(tok)
+        return SOME_DATE_WORD
+    except (ValueError, OverflowError):
+        pass
+
+    try:
+        locale.atoi(tok)
+        return SOME_INT_WORD
+    except ValueError:
+        try:
+            locale.atof(tok)
+            return SOME_FLOAT_WORD
+        except ValueError:
+            try:
+                float(tok)
+                return SOME_FLOAT_WORD
+            except ValueError:
+                pass
+
+    if textacy.constants.NUMBERS_REGEX.match(tok):
+        return SOME_NUMPREFIX_WORD
+
+    # consider adding hex hashes, version strings
+    return tok
+
+
+def _exact_match(regex, tok):
+    m = regex.match(tok)
+    if not m:
+        return False
+    if m.group(0) != tok:
+        return False
+    return True

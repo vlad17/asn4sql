@@ -10,7 +10,7 @@ from torch.nn import functional as F
 
 from .attention import Attention
 
-flags.DEFINE_enum('multi_attn', 'double',
+flags.DEFINE_enum('multi_attn', 'indep',
                   ['double', 'symm', 'outer', 'indep', 'outer2'],
                   'multi-sequence attention type')
 

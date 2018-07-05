@@ -16,6 +16,8 @@ install_requires = [
     'tabulate>=0.8.2',
     'records>=0.5.2',
     'spacy>=2.0.11',
+    'textacy>=0.6.1',
+    'python-dateutil>=2.7.3',
 ]
 setup(name="asn4sql", author="RISE Lab",
       install_requires=install_requires)

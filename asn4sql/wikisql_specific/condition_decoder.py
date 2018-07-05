@@ -156,7 +156,7 @@ class ConditionDecoder(nn.Module):
         * (pq1) logits over right endpoint for span of literals
         """
         # TODO separate sequence inputs for these three
-        # TODO op_encoding for op/span predictions
+        # TODO separate op_encoding for op/span predictions
 
         stop = self.stop_logits(sce_ce, sqe_qe)
 

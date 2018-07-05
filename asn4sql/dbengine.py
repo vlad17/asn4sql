@@ -61,8 +61,7 @@ class DBEngine:
 
         for col_idx, op, l, r in zip(ex.cond_col, ex.cond_op, ex.cond_span_l,
                                      ex.cond_span_r):
-            val = data.wikisql.detokenize(
-                ex.original[l:r], ex.after[l:r], drop_last=True)
+            val = ''.join(ex.original[l:r]).strip()
             val = val.lower()  # weird wikisql standard is to lowercase
             if schema['col{}'.format(col_idx)] == 'real' and not isinstance(
                     val, (int, float)):

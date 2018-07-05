@@ -2,6 +2,13 @@
 Enables synchronous multiprocess data parallelism.
 Improves GPU usage by having multiple CPU feeders
 to the RNN training process.
+
+Combine this with Nvidia's MPS to get parallelism in settings
+where you need the GPU but the execution is highly dynamic
+(e.g., not a regular feed-forward fixed-length or sequence-packed
+input which can be batched).
+
+https://stackoverflow.com/questions/34709749/
 """
 from contextlib import closing
 import sys

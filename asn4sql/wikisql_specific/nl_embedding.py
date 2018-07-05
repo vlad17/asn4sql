@@ -5,6 +5,8 @@ A static natural language embedding.
 import torch
 from torch import nn
 
+from ..data import wikisql
+
 
 class NLEmbedding(nn.Module):
     """
@@ -32,10 +34,30 @@ class NLEmbedding(nn.Module):
 
     def __init__(self, src_field):
         super().__init__()
-        vecs = src_field.vocab.vectors
+        vocab = src_field.vocab
+        vecs = vocab.vectors
+        self.lo, self.hi = _get_specials_range(vocab)
         self.embedding = nn.Embedding.from_pretrained(vecs, freeze=True)
         self.embedding_dim = vecs.size()[1]
+        self.specials_embedding = nn.Embedding(self.hi - self.lo,
+                                               self.embedding_dim)
 
     def forward(self, x):
+        # a little awkward because we need to propogate grads to
         with torch.no_grad():
-            return self.embedding(x)
+            nonspecial = torch.nonzero(1 - (self.lo <= x) * (x < self.hi))
+        xx = x.clone()
+        xx[nonspecial] = 0
+        xx -= self.lo
+        embed = self.specials_embedding(xx)
+        embed[nonspecial] = self.embedding(x[nonspecial])
+        return embed
+
+
+def _get_specials_range(vocab):
+    idxs = [vocab.stoi[w] for w in wikisql.SPECIALS]
+    lo, hi = min(idxs), max(idxs) + 1
+    if hi - lo != len(idxs):
+        raise ValueError('special tokens must occupy a contiguous range '
+                         'in the vocabulary')
+    return lo, hi

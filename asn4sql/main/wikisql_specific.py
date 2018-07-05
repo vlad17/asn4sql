@@ -162,7 +162,7 @@ def _do_training(train, val, shared, training_state):
 
         shared.set_mode(evaluation=True)
         val_diagnostics = _diagnose(val, shared)
-        train_diagnostics = _diagnose(train, shared, len(val))
+        train_diagnostics = _diagnose(train, shared, min(len(val), len(train)))
         track.metric(iteration=epoch, lr=training_state.lr)
         track.metric(
             iteration=epoch,
