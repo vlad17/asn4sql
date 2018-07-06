@@ -31,3 +31,9 @@ All mainfiles are documented. Run `python asn4sql/main/*.py --help` for any `*` 
 ```
 TODO example code
 ```
+
+## Q&A
+
+**What do [Abstract Syntax Networks](https://arxiv.org/abs/1704.07535) have to do with this?** Nothing. This project was initially supposed to compare how much we lose in terms of accuracy by going from an incredibly problem-specific architecture for "synthesis" to a generic synthesis net, but I never got around to the latter. Besides, ASN is not the end-all of generic synthesis network architectures, see for instance [this graph-based one](https://arxiv.org/abs/1805.08490).
+
+**Why don't you use packed sequences for seq2seq training?** I anticipate having dynamic computation graph shapes (i.e., even more dynamic than variable-length sequences). So it doesn't make sense to have a training script specialized to seq2seq-style training, when Nvidia MPS and single-GPU multiplexing can achieve good performance.
