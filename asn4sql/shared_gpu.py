@@ -8,7 +8,9 @@ where you need the GPU but the execution is highly dynamic
 (e.g., not a regular feed-forward fixed-length or sequence-packed
 input which can be batched).
 
-https://stackoverflow.com/questions/34709749/
+See:
+* https://stackoverflow.com/questions/34709749/
+* scripts/*-mps.sh
 """
 from contextlib import closing
 import sys

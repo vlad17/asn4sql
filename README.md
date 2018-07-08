@@ -23,13 +23,23 @@ All scripts are available in `scripts/`, and should be run from the repo root in
 | `tests.sh` | runs tests |
 | `install-pytorch.sh` | infer python and cuda versions, use them to install pytorch |
 | `format.sh` | auto-format the entire `asn4sql` directory |
+| `launch-mps.sh` | setup up a GPU-specific MPS server (must be sourced, log path hard-coded) |
+| `disable-mps.sh` | tear down up a GPU-specific MPS server (log path hard-coded) |
 
 ## Example
 
 All mainfiles are documented. Run `python asn4sql/main/*.py --help` for any `*` for details.
 
 ```
-TODO example code
+python asn4sql/main/preprocess_data.py
+export CUDA_VISIBLE_DEVICES=0
+source ./scripts/launch-mps.sh
+# defaults are performant accuracy-wise
+# adjust --batch_size and --workers accodring to your GPU memory usage
+python asn4sql/main/wikisql_specific.py --experiment_comment "my-favorite-trial"
+trial=$(python -m track.trials trial_id experiment_comment=my-favorite-trial | head -2 | tail -1 | cut -d" " -f1)
+python asn4sql/main/test_wikisql.py --trial $trial
+./scripts/disable-mps.sh
 ```
 
 ## Q&A
