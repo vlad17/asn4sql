@@ -1,7 +1,7 @@
 """
 Preprocess and validate pytorch data.
 
-Writes out the processed data to dataroot/wikisql/parsed_data.pth.
+Writes out the processed data to dataroot/wikisql/processed-toy(0|1).pth
 """
 import os
 import random

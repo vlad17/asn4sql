@@ -36,10 +36,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from .mlp import MLP
-from .double_attention import IndependentAttention
-from .nl_embedding import NLEmbedding
-from .column_encoding import ColumnEncoding
-from .question_encoding import QuestionEncoding
+from .wikisql_input_encoding import WikiSQLInputEncoding
 from .pointer import Pointer
 from .condition_decoder import ConditionDecoder
 from ..utils import get_device
@@ -66,39 +63,16 @@ class WikiSQLSpecificModel(nn.Module):
         super().__init__()
         self.fields = fields
 
-        natural_language_embedding = NLEmbedding(fields['src'])
-        ent_field = fields['ent']
-        tbl_field = fields['tbl']
-        self.question_encoding_for_agg = QuestionEncoding(
-            natural_language_embedding, ent_field)
-        self.column_encoding_for_agg = ColumnEncoding(
-            natural_language_embedding, tbl_field)
-        self.question_encoding_for_sel = QuestionEncoding(
-            natural_language_embedding, ent_field)
-        self.column_encoding_for_sel = ColumnEncoding(
-            natural_language_embedding, tbl_field)
-        self.question_encoding_for_cond = QuestionEncoding(
-            natural_language_embedding, ent_field)
-        self.column_encoding_for_cond = ColumnEncoding(
-            natural_language_embedding, tbl_field)
+        self.process_sel_input = WikiSQLInputEncoding(fields)
+        self.process_agg_input = WikiSQLInputEncoding(fields)
 
-        self.agg_attention = IndependentAttention(
-            self.column_encoding_for_agg.sequence_size,
-            self.question_encoding_for_agg.sequence_size, 0)
-        self.sel_attention = IndependentAttention(
-            self.column_encoding_for_cond.sequence_size,
-            self.question_encoding_for_cond.sequence_size, 0)
-
-        joint_embedding_size = (self.column_encoding_for_agg.sequence_size +
-                                self.question_encoding_for_agg.sequence_size)
+        joint_embedding_size = self.process_sel_input.attn_size
         self.aggregation_mlp = MLP(joint_embedding_size,
                                    [flags.FLAGS.aggregation_hidden] * 2,
                                    len(wikisql.AGGREGATION))
-        self.selection_ptrnet = Pointer(
-            self.column_encoding_for_sel.sequence_size, joint_embedding_size)
-        self.condition_decoder = ConditionDecoder(
-            self.column_encoding_for_cond.sequence_size,
-            self.question_encoding_for_cond.sequence_size, _MAX_COND_LENGTH)
+        self.selection_ptrnet = Pointer(self.process_sel_input.column_seq_size,
+                                        joint_embedding_size)
+        self.condition_decoder = ConditionDecoder(fields, _MAX_COND_LENGTH)
 
     def prepare_example(self, ex):
         """
@@ -160,35 +134,17 @@ class WikiSQLSpecificModel(nn.Module):
         # w = _MAX_COND_LENGTH
 
         # aggregation prediction
-        sequence_question_encoding_for_agg_qe = self.question_encoding_for_agg(
-            prepared_ex['src'], prepared_ex['ent'])
-        sequence_column_encoding_for_agg_ce = self.column_encoding_for_agg(
-            prepared_ex['tbl'])
-        joint_encoding_for_agg_e = torch.cat(
-            self.agg_attention(sequence_column_encoding_for_agg_ce,
-                               sequence_question_encoding_for_agg_qe))
+        _, _, joint_encoding_for_agg_e = self.process_agg_input(prepared_ex)
         aggregation_logits_a = self.aggregation_mlp(joint_encoding_for_agg_e)
 
         # selection prediction
-        sequence_question_encoding_for_sel_qe = self.question_encoding_for_sel(
-            prepared_ex['src'], prepared_ex['ent'])
-        sequence_column_encoding_for_sel_ce = self.column_encoding_for_sel(
-            prepared_ex['tbl'])
-        joint_encoding_for_sel_e = torch.cat(
-            self.sel_attention(sequence_column_encoding_for_sel_ce,
-                               sequence_question_encoding_for_sel_qe))
+        _, sequence_column_encoding_for_sel_ce, joint_encoding_for_sel_e = (
+            self.process_sel_input(prepared_ex))
         selection_logits_c = self.selection_ptrnet(
             sequence_column_encoding_for_sel_ce, joint_encoding_for_sel_e)
 
         # condition (decoding) prediction
-        sequence_question_encoding_for_cond_qe = (
-            self.question_encoding_for_cond(prepared_ex['src'],
-                                            prepared_ex['ent']))
-        sequence_column_encoding_for_cond_ce = self.column_encoding_for_sel(
-            prepared_ex['tbl'])
-        conds = self.condition_decoder(sequence_question_encoding_for_cond_qe,
-                                       sequence_column_encoding_for_cond_ce,
-                                       prepared_ex)
+        conds = self.condition_decoder(prepared_ex)
 
         return aggregation_logits_a, selection_logits_c, conds
 

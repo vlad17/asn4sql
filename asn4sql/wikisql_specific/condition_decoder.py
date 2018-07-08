@@ -10,6 +10,7 @@ import torch
 from torch import nn
 
 from .mlp import MLP
+from .wikisql_input_encoding import WikiSQLInputEncoding
 from .pointer import Pointer
 from .double_attention import double_attention, IndependentAttention
 from ..data import wikisql
@@ -18,6 +19,11 @@ from ..utils import get_device
 flags.DEFINE_integer('decoder_size', 64, 'hidden state size for the decoder')
 flags.DEFINE_integer('op_embedding_size', 16,
                      'embedding size for conditional operators')
+flags.DEFINE_boolean(
+    'tie_encodings', False, 'whether to use the same sequence'
+    ' encoder weights for all four decoding stages, the '
+    'column prediction, operator prediction, literal '
+    'prediction, and stop prediction')
 
 # pytorch convenience helpers
 
@@ -60,7 +66,7 @@ class _InitDecoderState(nn.Module):
         return initial_decoder_state
 
 
-class ConditionDecoder(nn.Module):
+class ConditionDecoder(nn.Module):  # pylint: disable=too-many-instance-attributes
     """
     The decoder produces seq2seq-style output for the conditional
     columns in WikiSQL.
@@ -82,8 +88,23 @@ class ConditionDecoder(nn.Module):
     Each successive step uses the previous one as input.
     """
 
-    def __init__(self, col_seq_size, src_seq_size, max_conds):
+    def __init__(self, fields, max_conds):
         super().__init__()
+
+        if flags.FLAGS.tie_encodings:
+            self.shared_encoder = WikiSQLInputEncoding(fields, attend=False)
+            self.tied_encodings = True
+        else:
+            self.col_input_encoder = WikiSQLInputEncoding(fields, attend=False)
+            self.op_input_encoder = WikiSQLInputEncoding(fields, attend=False)
+            self.literal_input_encoder = WikiSQLInputEncoding(
+                fields, attend=False)
+            self.stop_input_encoder = WikiSQLInputEncoding(
+                fields, attend=False)
+            self.tied_encodings = True
+
+        col_seq_size = self.col_input_encoder.column_seq_size
+        src_seq_size = self.col_input_encoder.question_seq_size
 
         # predict stop
         joint_embedding_size = col_seq_size + src_seq_size
@@ -136,7 +157,7 @@ class ConditionDecoder(nn.Module):
         self.span_l_ptr_logits = Pointer(src_seq_size, decoder_size)
         self.span_r_ptr_logits = Pointer(src_seq_size, decoder_size)
 
-    def forward(self, sqe_qe, sce_ce, prepared_ex):
+    def forward(self, prepared_ex):
         """
         e = some embedding dimension, varies tensor to tensor
         i = decoder input dimension
@@ -158,7 +179,26 @@ class ConditionDecoder(nn.Module):
         # TODO separate sequence inputs for these three
         # TODO separate op_encoding for op/span predictions
 
-        stop = self.stop_logits(sce_ce, sqe_qe)
+        if self.tied_encodings:
+            src_seq_for_stop_qe, tbl_seq_for_stop_ce = self.stop_input_encoder(
+                prepared_ex)
+            src_seq_for_col_qe, tbl_seq_for_col_ce = self.col_input_encoder(
+                prepared_ex)
+            src_seq_for_op_qe, tbl_seq_for_op_ce = self.op_input_encoder(
+                prepared_ex)
+            src_seq_for_literal_qe, tbl_seq_for_literal_ce = (
+                self.literal_input_encoder(prepared_ex))
+        else:
+            src_seq_for_stop_qe, tbl_seq_for_stop_ce = self.shared_encoder(
+                prepared_ex)
+            src_seq_for_col_qe, tbl_seq_for_col_ce = self.shared_encoder(
+                prepared_ex)
+            src_seq_for_op_qe, tbl_seq_for_op_ce = self.shared_encoder(
+                prepared_ex)
+            src_seq_for_literal_qe, tbl_seq_for_literal_ce = (
+                self.shared_encoder(prepared_ex))
+
+        stop = self.stop_logits(tbl_seq_for_stop_ce, src_seq_for_stop_qe)
 
         if self.training:
             seq_len = len(prepared_ex['cond_op'])
@@ -166,32 +206,33 @@ class ConditionDecoder(nn.Module):
             seq_len = stop.argmax().cpu().detach().numpy()
 
         col_pc = []
-        h = self.col_init(sce_ce, sqe_qe)
-        prev_col = [torch.zeros_like(sce_ce[0])]
+        h = self.col_init(tbl_seq_for_col_ce, src_seq_for_col_qe)
+        prev_col = [torch.zeros_like(tbl_seq_for_col_ce[0])]
         for i in range(seq_len):
-            rnn_input = torch.cat(
-                [self.col_attn(sce_ce, sqe_qe, h[0].view(-1)),
-                 prev_col[-1]]).view(1, 1, -1)
+            rnn_input = torch.cat([
+                self.col_attn(tbl_seq_for_col_ce, src_seq_for_col_qe,
+                              h[0].view(-1)), prev_col[-1]
+            ]).view(1, 1, -1)
             out, h = self.col_rnn(rnn_input, h)
-            col_c = self.col_proj(sce_ce, out.view(-1))
+            col_c = self.col_proj(tbl_seq_for_col_ce, out.view(-1))
             col_pc.append(col_c)
             col = col_c.argmax().cpu().detach().numpy()
             if self.training:
                 true_col = prepared_ex['cond_col'][i]
-                prev_col.append(sce_ce[true_col].detach())
+                prev_col.append(tbl_seq_for_col_ce[true_col].detach())
             else:
-                prev_col.append(sce_ce[col].detach())
+                prev_col.append(tbl_seq_for_col_ce[col].detach())
         prev_col = prev_col[1:]
 
         op_po = []
-        h = self.op_init(sce_ce, sqe_qe)
+        h = self.op_init(tbl_seq_for_op_ce, src_seq_for_op_qe)
         prev_op = [
             torch.zeros(self.op_embedding.embedding_dim, device=get_device())
         ]
         for i in range(seq_len):
             rnn_input = torch.cat([
-                self.op_attn(sce_ce, sqe_qe, h[0].view(-1)), prev_col[i],
-                prev_op[-1]
+                self.op_attn(tbl_seq_for_op_ce, src_seq_for_op_qe,
+                             h[0].view(-1)), prev_col[i], prev_op[-1]
             ]).view(1, 1, -1)
             out, h = self.op_rnn(rnn_input, h)
             op_o = self.op_proj(out.view(-1))
@@ -206,21 +247,21 @@ class ConditionDecoder(nn.Module):
 
         l_span_pq = []
         r_span_pq1 = []
-        h = self.span_init(sce_ce, sqe_qe)
+        h = self.span_init(tbl_seq_for_literal_ce, src_seq_for_literal_qe)
         for _ in range(seq_len):
             rnn_input = torch.cat([
-                self.span_attn(sce_ce, sqe_qe, h[0].view(-1)), prev_col[i],
-                prev_op[i]
+                self.span_attn(tbl_seq_for_literal_ce, src_seq_for_literal_qe,
+                               h[0].view(-1)), prev_col[i], prev_op[i]
             ]).view(1, 1, -1)
             out, h = self.span_rnn(rnn_input, h)
             context = out.view(-1)
-            l_span_q = self.span_l_ptr_logits(sqe_qe, context)
+            l_span_q = self.span_l_ptr_logits(src_seq_for_literal_qe, context)
             l_span_pq.append(l_span_q)
             with torch.no_grad():
                 # r = number entries after l
                 l = l_span_q.argmax().detach().cpu().numpy()
                 left_pad = [self._neg100()] * (l + 1)
-            sqe_re = sqe_qe[l:]
+            sqe_re = src_seq_for_literal_qe[l:]
             r_span_r = self.span_r_ptr_logits(sqe_re, context)
             r_span_q1 = torch.cat(left_pad + [r_span_r])
             r_span_pq1.append(r_span_q1)

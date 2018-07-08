@@ -689,6 +689,12 @@ def _n_procs():
         return 1
 
 
+flags.DEFINE_boolean('parse_dates', True, 'parse generic date tokens '
+                     'with the dateparser')
+flags.DEFINE_boolean('parse_numprefix', True, 'parse numerically '
+                     'prefixed words')
+
+
 def _process_token(tok, toy):  # pylint: disable=too-many-return-statements
     vocab = pretrained_vocab(toy).stoi
     # TODO train these special separately, perhaps?
@@ -720,8 +726,9 @@ def _process_token(tok, toy):  # pylint: disable=too-many-return-statements
         return SOME_EMAIL_WORD
 
     try:
-        dateparser(tok)
-        return SOME_DATE_WORD
+        if flags.FLAGS.parse_dates:
+            dateparser(tok)
+            return SOME_DATE_WORD
     except (ValueError, OverflowError):
         pass
 
@@ -739,8 +746,9 @@ def _process_token(tok, toy):  # pylint: disable=too-many-return-statements
             except ValueError:
                 pass
 
-    if textacy.constants.NUMBERS_REGEX.match(tok):
-        return SOME_NUMPREFIX_WORD
+    if flags.FLAGS.parse_numprefix:
+        if textacy.constants.NUMBERS_REGEX.match(tok):
+            return SOME_NUMPREFIX_WORD
 
     # consider adding hex hashes, version strings
     return tok

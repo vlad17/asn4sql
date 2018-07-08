@@ -47,9 +47,11 @@ main() {
     cmds+=("test -f $HOME/track/asn4sql/test_2*/checkpoints/best.pth")
     cmds+=('python asn4sql/main/test_wikisql.py --workers 0 --toy --trial $(basename $HOME/track/asn4sql/test_*)')
     cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn symm")
-    cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn outer")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn outer1")
     cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn outer2")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn outer3")
     cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn double")
+    cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn self")
 
     for cmd in "${cmds[@]}"; do
         box "${cmd}"

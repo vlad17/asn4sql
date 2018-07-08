@@ -3,16 +3,20 @@ Defines several modules for two-sequence attention. We are interested in
 contextualizing both sequences with respect to one another.
 """
 
+import math
+
 from absl import flags
 import torch
 from torch import nn
 from torch.nn import functional as F
 
 from .attention import Attention
+from .self_attention import DoubleSeqAttention
 
-flags.DEFINE_enum('multi_attn', 'indep',
-                  ['double', 'symm', 'outer', 'indep', 'outer2'],
-                  'multi-sequence attention type')
+flags.DEFINE_enum(
+    'multi_attn', 'indep',
+    ['double', 'symm', 'outer1', 'indep', 'outer2', 'outer3', 'self'],
+    'multi-sequence attention type')
 
 
 def double_attention(*args, **kwargs):
@@ -21,12 +25,16 @@ def double_attention(*args, **kwargs):
         double_attn = DoubleAttention
     elif flags.FLAGS.multi_attn == 'symm':
         double_attn = SymmetricDoubleAttention
-    elif flags.FLAGS.multi_attn == 'outer':
-        double_attn = OuterAttention
     elif flags.FLAGS.multi_attn == 'indep':
         double_attn = IndependentAttention
+    elif flags.FLAGS.multi_attn == 'outer1':
+        double_attn = Outer1Attention
     elif flags.FLAGS.multi_attn == 'outer2':
         double_attn = Outer2Attention
+    elif flags.FLAGS.multi_attn == 'outer3':
+        double_attn = Outer3Attention
+    elif flags.FLAGS.multi_attn == 'self':
+        double_attn = DoubleSeqAttention
     else:
         raise ValueError('unsupported multi attention {}'
                          .format(flags.FLAGS.multi_attn))
@@ -87,7 +95,7 @@ class SymmetricDoubleAttention(nn.Module):
         return attended1_e, attended2_e
 
 
-class OuterAttention(nn.Module):
+class Outer1Attention(nn.Module):
     """
     Computes the "outer product" attention between two sequences, which
     computes a matrix of attention logits and "marginalizes" them.
@@ -214,3 +222,52 @@ class Outer2Attention(nn.Module):
         att1 = seq1_ae.t().mv(F.softmax(attn_logits_a, dim=0))
         att2 = seq2_be.t().mv(F.softmax(attn_logits_b, dim=0))
         return att1, att2
+
+
+class Outer3Attention(nn.Module):
+    """
+    Computes the "outer product" attention between two sequences, which
+    computes a matrix of attention logits and "marginalizes" them.
+    But differently from the outer1 and outer2: uses a bilinear product.
+    """
+
+    def __init__(self, seq1_size, seq2_size, context_size):
+        super().__init__()
+        self.seq1_size = seq1_size
+        self.seq2_size = seq2_size
+        self.context_size = max(context_size, 1)
+        self.bilinear = nn.parameter.Parameter(
+            torch.Tensor(self.context_size, seq1_size, seq2_size))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        """initialize the weight with pytorch's usual rule"""
+        stdv = 1. / math.sqrt(self.bilinear.size(1))
+        self.bilinear.data.uniform_(-stdv, stdv)
+
+    def forward(self, seq1_ax, seq2_by, context_c=None):
+        """
+        a = sequence 1 len (embedding size is x)
+        b = sequence 2 len (embedding size is y)
+        c = context size
+
+        returns tuple of attentions over both sequences
+        """
+        bilinear_cxy = self.bilinear
+        prod_cxb = bilinear_cxy.matmul(seq2_by.t())
+        prod_cbx = prod_cxb.transpose(1, 2)
+        outer_cba = prod_cbx.matmul(seq1_ax.t())
+        outer_abc = outer_cba.transpose(0, 2)
+        if context_c is None:
+            assert self.context_size <= 1, self.context_size
+            outer_ab = outer_abc.squeeze(2)
+        else:
+            outer_ab = outer_abc.matmul(context_c)
+            assert len(outer_ab.size()) == 2, outer_ab.size()
+
+        attn_logits_a = outer_ab.sum(1)
+        attn_logits_b = outer_ab.sum(0)
+
+        att1_x = seq1_ax.t().mv(F.softmax(attn_logits_a, dim=0))
+        att2_y = seq2_by.t().mv(F.softmax(attn_logits_b, dim=0))
+        return att1_x, att2_y
