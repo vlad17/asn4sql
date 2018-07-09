@@ -68,6 +68,7 @@ flags.DEFINE_float('weight_decay', 0, 'L2 regularization')
 
 def _main(_):
     with track.trial(
+            os.getenv('TRACK_DIRECTORY'),
             param_map=track.absl_flags(),
             trial_prefix=flags.FLAGS.trial_prefix):
         seed_all(flags.FLAGS.seed)

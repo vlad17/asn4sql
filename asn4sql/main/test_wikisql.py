@@ -49,7 +49,7 @@ def _main(_):
     print('loading data from {}'.format(dataset_file))
     _train, _val, test = torch.load(dataset_file)
 
-    proj = track.Project()
+    proj = track.Project(os.getenv('TRACK_DIRECTORY'))
     initial_model_file = proj.fetch_artifact(flags.FLAGS.trial,
                                              'untrained_model.pth')
     model_file = proj.fetch_artifact(flags.FLAGS.trial, 'checkpoints/best.pth')
