@@ -49,7 +49,6 @@ main() {
     cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn symm")
     cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn outer1")
     cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn outer2")
-    cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn outer3")
     cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn double")
     cmds+=("python asn4sql/main/wikisql_specific.py --toy --persist_every 0 --max_epochs 1 --seed 3 --workers 0 --batch_size 16 --trial_prefix test_3 --multi_attn self")
 

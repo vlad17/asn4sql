@@ -44,9 +44,10 @@ from ..data import wikisql
 
 _MAX_COND_LENGTH = 5
 
-flags.DEFINE_integer(
-    'aggregation_hidden', 64, 'aggregation 2-layer classifier has this many '
-    'hidden layer neurons')
+flags.DEFINE_integer('aggregation_hidden', 256, 'aggregation net width')
+flags.DEFINE_integer('aggregation_depth', 2, 'aggregation net depth')
+flags.DEFINE_integer('selection_hidden', 256, 'selection net width')
+flags.DEFINE_integer('selection_depth', 0, 'selection net depth')
 
 
 class WikiSQLSpecificModel(nn.Module):
@@ -67,11 +68,16 @@ class WikiSQLSpecificModel(nn.Module):
         self.process_agg_input = WikiSQLInputEncoding(fields)
 
         joint_embedding_size = self.process_sel_input.attn_size
-        self.aggregation_mlp = MLP(joint_embedding_size,
-                                   [flags.FLAGS.aggregation_hidden] * 2,
+        agg_net = flags.FLAGS.aggregation_depth * [
+            flags.FLAGS.aggregation_hidden
+        ]
+        self.aggregation_mlp = MLP(joint_embedding_size, agg_net,
                                    len(wikisql.AGGREGATION))
+        sel_net = flags.FLAGS.selection_depth * [flags.FLAGS.selection_hidden]
+        self.selection_mlp = MLP(joint_embedding_size, sel_net,
+                                 flags.FLAGS.selection_hidden)
         self.selection_ptrnet = Pointer(self.process_sel_input.column_seq_size,
-                                        joint_embedding_size)
+                                        flags.FLAGS.selection_hidden)
         self.condition_decoder = ConditionDecoder(fields, _MAX_COND_LENGTH)
 
     def prepare_example(self, ex):
@@ -141,7 +147,8 @@ class WikiSQLSpecificModel(nn.Module):
         _, sequence_column_encoding_for_sel_ce, joint_encoding_for_sel_e = (
             self.process_sel_input(prepared_ex))
         selection_logits_c = self.selection_ptrnet(
-            sequence_column_encoding_for_sel_ce, joint_encoding_for_sel_e)
+            sequence_column_encoding_for_sel_ce,
+            self.selection_mlp(joint_encoding_for_sel_e))
 
         # condition (decoding) prediction
         conds = self.condition_decoder(prepared_ex)

@@ -11,7 +11,7 @@ from torch import nn
 from ..data import wikisql
 
 flags.DEFINE_integer(
-    'sequence_column_encoding_size', 256,
+    'sequence_column_encoding_size', 512,
     'hidden state size for the per-column encoding; should '
     'be even')
 

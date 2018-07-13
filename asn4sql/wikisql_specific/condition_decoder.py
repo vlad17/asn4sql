@@ -16,7 +16,7 @@ from .double_attention import double_attention, IndependentAttention
 from ..data import wikisql
 from ..utils import get_device
 
-flags.DEFINE_integer('decoder_size', 64, 'hidden state size for the decoder')
+flags.DEFINE_integer('decoder_size', 512, 'hidden state size for the decoder')
 flags.DEFINE_integer('op_embedding_size', 16,
                      'embedding size for conditional operators')
 flags.DEFINE_boolean(
@@ -94,6 +94,7 @@ class ConditionDecoder(nn.Module):  # pylint: disable=too-many-instance-attribut
         if flags.FLAGS.tie_encodings:
             self.shared_encoder = WikiSQLInputEncoding(fields, attend=False)
             self.tied_encodings = True
+            encoder = self.shared_encoder
         else:
             self.col_input_encoder = WikiSQLInputEncoding(fields, attend=False)
             self.op_input_encoder = WikiSQLInputEncoding(fields, attend=False)
@@ -101,10 +102,11 @@ class ConditionDecoder(nn.Module):  # pylint: disable=too-many-instance-attribut
                 fields, attend=False)
             self.stop_input_encoder = WikiSQLInputEncoding(
                 fields, attend=False)
-            self.tied_encodings = True
+            self.tied_encodings = False
+            encoder = self.col_input_encoder
 
-        col_seq_size = self.col_input_encoder.column_seq_size
-        src_seq_size = self.col_input_encoder.question_seq_size
+        col_seq_size = encoder.column_seq_size
+        src_seq_size = encoder.question_seq_size
 
         # predict stop
         joint_embedding_size = col_seq_size + src_seq_size
@@ -180,6 +182,15 @@ class ConditionDecoder(nn.Module):  # pylint: disable=too-many-instance-attribut
         # TODO separate op_encoding for op/span predictions
 
         if self.tied_encodings:
+            src_seq_for_stop_qe, tbl_seq_for_stop_ce = self.shared_encoder(
+                prepared_ex)
+            src_seq_for_col_qe, tbl_seq_for_col_ce = (src_seq_for_stop_qe,
+                                                      tbl_seq_for_stop_ce)
+            src_seq_for_op_qe, tbl_seq_for_op_ce = (src_seq_for_stop_qe,
+                                                    tbl_seq_for_stop_ce)
+            src_seq_for_literal_qe, tbl_seq_for_literal_ce = (
+                src_seq_for_stop_qe, tbl_seq_for_stop_ce)
+        else:
             src_seq_for_stop_qe, tbl_seq_for_stop_ce = self.stop_input_encoder(
                 prepared_ex)
             src_seq_for_col_qe, tbl_seq_for_col_ce = self.col_input_encoder(
@@ -188,15 +199,6 @@ class ConditionDecoder(nn.Module):  # pylint: disable=too-many-instance-attribut
                 prepared_ex)
             src_seq_for_literal_qe, tbl_seq_for_literal_ce = (
                 self.literal_input_encoder(prepared_ex))
-        else:
-            src_seq_for_stop_qe, tbl_seq_for_stop_ce = self.shared_encoder(
-                prepared_ex)
-            src_seq_for_col_qe, tbl_seq_for_col_ce = self.shared_encoder(
-                prepared_ex)
-            src_seq_for_op_qe, tbl_seq_for_op_ce = self.shared_encoder(
-                prepared_ex)
-            src_seq_for_literal_qe, tbl_seq_for_literal_ce = (
-                self.shared_encoder(prepared_ex))
 
         stop = self.stop_logits(tbl_seq_for_stop_ce, src_seq_for_stop_qe)
 

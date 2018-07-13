@@ -98,6 +98,8 @@ class DBEngine:
 
         Also note the column names are reconstructed from tokens rather than
         the original strings so the spacing may be off.
+
+        This method assumes number of columns < 10
         """
         query_str, param_map = self.query_and_params(ex)
         schema = self.get_schema(ex.table_id)

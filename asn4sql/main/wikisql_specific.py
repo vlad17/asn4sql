@@ -43,7 +43,7 @@ flags.DEFINE_integer(
 flags.DEFINE_integer('max_epochs', 100,
                      'maximum number of epochs for training')
 flags.DEFINE_integer(
-    'workers', 4, 'number of CPU workers for parallelizing '
+    'workers', 8, 'number of CPU workers for parallelizing '
     'training in a data-parallel manner (we only ever use '
     'at most one GPU, but python-heavy processing can be '
     'parallelized. Use a single process if set to 0.')

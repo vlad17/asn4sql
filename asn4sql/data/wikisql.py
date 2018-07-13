@@ -693,6 +693,8 @@ flags.DEFINE_boolean('parse_dates', True, 'parse generic date tokens '
                      'with the dateparser')
 flags.DEFINE_boolean('parse_numprefix', True, 'parse numerically '
                      'prefixed words')
+flags.DEFINE_boolean('fix_unicode_only', False, 'only fix unicode, do not '
+                     'try to do additional parsing')
 
 
 def _process_token(tok, toy):  # pylint: disable=too-many-return-statements
@@ -708,6 +710,9 @@ def _process_token(tok, toy):  # pylint: disable=too-many-return-statements
     # different outcomes when the token matches a certain pattern
     tok = textacy.preprocess.fix_bad_unicode(tok)
     tok = textacy.preprocess.transliterate_unicode(tok)
+
+    if flags.FLAGS.fix_unicode_only:
+        return tok
 
     if tok in vocab:
         return tok

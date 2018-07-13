@@ -8,7 +8,7 @@ import torch
 from torch import nn
 
 flags.DEFINE_integer(
-    'sequence_question_encoding_size', 64,
+    'sequence_question_encoding_size', 512,
     'hidden state size for the question sequential '
     'encoding; this should be even')
 flags.DEFINE_integer('ent_embedding_size', 32,
